@@ -1,0 +1,23 @@
+{
+  "name": "todolist",
+  "version": "1.0.0",
+  "description": "A kanban-style todo manager for Obsidian",
+  "main": "main.js",
+  "scripts": {
+    "dev": "tsc -watch",
+    "build": "tsc"
+  },
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "todo",
+    "kanban"
+  ],
+  "author": "lilingtao",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^16.11.6",
+    "obsidian": "latest",
+    "typescript": "^4.7.4"
+  }
+}
