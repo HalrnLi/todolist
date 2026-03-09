@@ -17,8 +17,8 @@ An Obsidian plugin that focuses on "daily todo management" and "historical todo 
 - **Interactive Operations**: Click checkbox to toggle completion status, automatically removed from current filter view after checking
 - **双击编辑**：双击任务内容可编辑任务信息（内容、链接、截止日期）
 - **Double-click Edit**: Double-click task content to edit task info (content, link, due date)
-- **智能排序**：任务按截止时间排序，无截止时间的任务优先显示在最上面
-- **Smart Sorting**: Tasks sorted by due date, tasks without due date displayed at top
+- **智能排序**：紧急任务（截止日期前一天）自动置顶显示，无截止时间的任务次之，有截止时间的按时间排序
+- **Smart Sorting**: Urgent tasks (one day before due date) are pinned at top, tasks without due date next, then sorted by due date
 - **拖拽排序**：支持拖拽任务卡片调整顺序
 - **Drag to Reorder**: Drag task cards to adjust order
 
@@ -31,16 +31,14 @@ An Obsidian plugin that focuses on "daily todo management" and "historical todo 
 - **Status Filter**: Each date group supports "Incomplete/Completed" filtering, defaults to incomplete tasks
 - **批量操作**：支持清空指定日期的所有任务
 - **Batch Operations**: Supports clearing all tasks for a specific date
-- **移动任务**：历史任务可一键移动到今天
-- **Move Tasks**: Historical tasks can be moved to today with one click
 
 ### 智能继承 / Smart Inheritance
-- **插件加载时**：自动将历史未完成任务继承到今天
-- **On Plugin Load**: Automatically inherits incomplete historical tasks to today
-- **定时任务**：每天凌晨1点自动将历史未完成任务继承到今天
-- **Scheduled Task**: Automatically inherits incomplete historical tasks to today at 1 AM daily
-- **避免重复**：智能检测已继承的任务，避免重复添加
-- **Avoid Duplicates**: Smart detection of inherited tasks to avoid duplicate additions
+- **自动移动**：插件加载时自动将历史未完成任务移动到今天（非复制）
+- **Auto Move**: Automatically moves incomplete historical tasks to today on plugin load (not copy)
+- **定时任务**：每天凌晨1点自动将历史未完成任务移动到今天
+- **Scheduled Task**: Automatically moves incomplete historical tasks to today at 1 AM daily
+- **避免重复**：智能检测已移动的任务，历史任务移动后自动从原日期删除
+- **Avoid Duplicates**: Smart detection of moved tasks, historical tasks are removed from original date after moving
 
 ### 搜索功能 / Search
 - **关键词搜索**：支持搜索任务内容、链接、截止日期
@@ -149,9 +147,21 @@ Task data is stored in JSON format in `.obsidian/plugins/todo_kanban/tasks.json`
 - 所有数据仅存储在本地，无网络请求 / All data stored locally only, no network requests
 - 插件完全免费开源，无付费功能 / Plugin is completely free and open source, no paid features
 - 请定期备份 `.obsidian/plugins/todo_kanban/tasks.json` 文件，以防数据丢失 / Please backup `.obsidian/plugins/todo_kanban/tasks.json` regularly to prevent data loss
-- 历史未完成任务会在每天凌晨1点自动继承到今天 / Incomplete historical tasks are automatically inherited to today at 1 AM daily
+- 历史未完成任务会在每天凌晨1点自动移动到今天 / Incomplete historical tasks are automatically moved to today at 1 AM daily
 
 ## 更新日志 / Changelog
+
+### v1.0.2
+- 新增：紧急任务置顶功能，截止日期前一天开始自动置顶显示，带红色边框和"紧急"标识
+- Added: Urgent task pinning feature, tasks are automatically pinned one day before due date with red border and "urgent" badge
+- 新增：编辑截止日期后自动重新排序任务列表
+- Added: Auto re-sort task list after editing due date
+- 新增：任务列表支持滚动查看，任务过多时可滚动查看下方任务
+- Added: Task list supports scrolling when there are many tasks
+- 优化：历史未完成任务自动移动到今天（改为移动而非复制，避免重复）
+- Improved: Historical incomplete tasks are moved to today instead of copied
+- 移除：手动"→今天"按钮（已有自动移动功能）
+- Removed: Manual "→Today" button (replaced by auto-move feature)
 
 ### v1.0.1
 - 新增：任务输入框支持自适应高度，根据内容自动增大缩小

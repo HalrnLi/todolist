@@ -48,6 +48,18 @@ function formatWeek(date) {
   return `${formatDate(start)} ~ ${formatDate(end)}`;
 }
 
+// 判断任务是否为紧急置顶任务（截止日期前一天开始置顶）
+function isUrgentTask(task, todayStr) {
+  if (!task.dueDate || task.completed) return false;
+  const today = new Date(todayStr);
+  const dueDate = new Date(task.dueDate);
+  const oneDayBeforeDue = new Date(dueDate);
+  oneDayBeforeDue.setDate(oneDayBeforeDue.getDate() - 1);
+  oneDayBeforeDue.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  return today >= oneDayBeforeDue;
+}
+
 // 待办视图
 class TodoView extends ItemView {
   constructor(leaf, plugin) {
@@ -66,10 +78,20 @@ class TodoView extends ItemView {
     container.empty();
     container.addClass('todo-view-container');
     
-    // 创建筛选器container.addClass('todo-view-container');
+    // 确保父容器也有正确的高度
+    this.containerEl.style.height = '100%';
+    if (this.containerEl.parentElement) {
+      this.containerEl.parentElement.style.height = '100%';
+    }
+    
+    container.style.height = '100%';
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.overflow = 'hidden';
     
     // 创建筛选器
     const filterSection = container.createEl('div', { cls: 'todo-filter-section' });
+    filterSection.style.flexShrink = '0';
     filterSection.createEl('label', { text: '查看范围：', cls: 'todo-filter-label' });
     this.filterSelect = filterSection.createEl('select', { cls: 'todo-filter-select' });
     this.filterSelect.add(new Option('当日待办', 'today'));
@@ -96,9 +118,14 @@ class TodoView extends ItemView {
     
     // 创建任务容器
     this.todoContainer = container.createEl('div', { cls: 'todo-container' });
+    this.todoContainer.style.flex = '1 1 0';
+    this.todoContainer.style.minHeight = '0';
+    this.todoContainer.style.overflowY = 'auto';
+    this.todoContainer.style.overflowX = 'hidden';
     
     // 创建输入区域（放在底部）
     const inputSection = container.createEl('div', { cls: 'todo-input-section' });
+    inputSection.style.flexShrink = '0';
     
     // 任务内容输入
     this.taskInput = inputSection.createEl('textarea', {
@@ -305,8 +332,15 @@ class TodoView extends ItemView {
       // 任务列表
       const tasksList = tasksContainer.createEl('div', { cls: 'todo-tasks-list' });
       
-      // 按截止时间排序：无截止时间的在最上面，有截止时间的按时间从近到远排序
+      // 按截止时间排序：紧急置顶任务优先，无截止时间的在最上面，有截止时间的按时间从近到远排序
       const sortedTasks = [...dateTask.tasksList].sort((a, b) => {
+        const aIsUrgent = isUrgentTask(a, todayStr);
+        const bIsUrgent = isUrgentTask(b, todayStr);
+        
+        // 紧急任务置顶
+        if (aIsUrgent && !bIsUrgent) return -1;
+        if (!aIsUrgent && bIsUrgent) return 1;
+        
         // 如果a没有截止时间，a排在前面
         if (!a.dueDate && b.dueDate) return -1;
         // 如果b没有截止时间，b排在前面
@@ -469,8 +503,11 @@ class TodoView extends ItemView {
 
   // 创建任务卡片
   createTaskCard(container, task, taskDate) {
+    const todayStr = formatDate(new Date());
+    const isUrgent = isUrgentTask(task, todayStr);
+    
     const card = container.createEl('div', {
-      cls: `todo-card ${task.completed ? 'todo-card-completed' : ''}`
+      cls: `todo-card ${task.completed ? 'todo-card-completed' : ''} ${isUrgent ? 'todo-card-urgent' : ''}`
     });
     
     card.draggable = true;
@@ -535,6 +572,12 @@ class TodoView extends ItemView {
     const content = card.createEl('div', {
       cls: 'todo-content'
     });
+    
+    // 紧急标识
+    if (isUrgent) {
+      content.createEl('span', { text: '🔴 紧急', cls: 'todo-urgent-badge' });
+    }
+    
     content.createEl('p', { text: task.content, cls: 'todo-text' });
     
     content.addEventListener('dblclick', () => {
@@ -558,17 +601,6 @@ class TodoView extends ItemView {
     }
     
     const actions = card.createEl('div', { cls: 'todo-actions' });
-    
-    if (taskDate !== formatDate(new Date())) {
-      const moveBtn = actions.createEl('button', {
-        text: '→今天',
-        cls: 'todo-move-button'
-      });
-      moveBtn.addEventListener('click', async () => {
-        await this.plugin.moveTaskToToday(task.taskId);
-        this.renderTasks();
-      });
-    }
     
     const deleteBtn = actions.createEl('button', {
       text: '×',
@@ -684,10 +716,11 @@ class TodoKanbanPlugin extends Plugin {
     }
   }
 
-  // 自动继承历史未完成任务到今天
+  // 自动继承历史未完成任务到今天（移动而非复制）
   async inheritIncompleteTasks() {
     const today = new Date();
     const todayStr = formatDate(today);
+    const timeStr = formatDateTime(today);
     let hasChanges = false;
     
     // 查找或创建今天的任务组
@@ -695,14 +728,17 @@ class TodoKanbanPlugin extends Plugin {
     if (!todayTask) {
       todayTask = {
         date: todayStr,
-        createTime: formatDateTime(today),
+        createTime: timeStr,
         tasksList: []
       };
       this.tasksData.tasks.push(todayTask);
     }
     
-    // 获取今天已存在的任务ID（用于避免重复继承）
+    // 获取今天已存在的任务ID（用于避免重复移动）
     const todayTaskIds = new Set(todayTask.tasksList.map(t => t.taskId));
+    
+    // 需要删除的空日期组
+    const datesToRemove = [];
     
     // 遍历所有历史日期的任务
     for (const dateTask of this.tasksData.tasks) {
@@ -712,27 +748,39 @@ class TodoKanbanPlugin extends Plugin {
       // 查找未完成的任务
       const incompleteTasks = dateTask.tasksList.filter(task => !task.completed);
       
+      // 移动未完成任务到今天
       for (const task of incompleteTasks) {
-        // 检查是否已经继承过（避免重复）
+        // 检查是否已经移动过（避免重复）
         if (!todayTaskIds.has(task.taskId)) {
-          // 创建继承的任务副本
-          const inheritedTask = {
-            ...task,
-            createAt: formatDateTime(today)
-          };
-          // 移除继承来源标记
-          delete inheritedTask.inheritedFrom;
-          todayTask.tasksList.push(inheritedTask);
+          // 移动任务（更新创建时间）
+          task.createAt = timeStr;
+          todayTask.tasksList.push(task);
           todayTaskIds.add(task.taskId);
           hasChanges = true;
         }
+      }
+      
+      // 从历史日期中移除已移动的任务
+      dateTask.tasksList = dateTask.tasksList.filter(task => task.completed);
+      
+      // 如果该日期没有任务了，标记删除
+      if (dateTask.tasksList.length === 0) {
+        datesToRemove.push(dateTask.date);
+      }
+    }
+    
+    // 删除空的日期组
+    for (const date of datesToRemove) {
+      const index = this.tasksData.tasks.findIndex(t => t.date === date);
+      if (index !== -1) {
+        this.tasksData.tasks.splice(index, 1);
       }
     }
     
     // 如果有变化，保存数据
     if (hasChanges) {
       await this.saveTasks();
-      console.log('Inherited incomplete tasks to today');
+      console.log('Moved incomplete tasks to today');
     }
   }
   
@@ -1019,8 +1067,8 @@ class EditModal extends Modal {
       // 保存到插件数据
       await this.view.plugin.updateTask(this.task.taskId, this.task);
       
-      // 更新卡片显示
-      this.view.updateTaskCard(this.card, this.task);
+      // 重新渲染任务列表以触发排序
+      this.view.renderTasks();
       
       this.close();
     });
