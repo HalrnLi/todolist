@@ -149,6 +149,9 @@ class TodoView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
+    // 用于清理事件监听器的 AbortController
+    this.abortController = new AbortController();
+    this.signal = this.abortController.signal;
   }
 
   getViewType() {
@@ -157,7 +160,9 @@ class TodoView extends ItemView {
 
   getDisplayText() {
     return '待办看板';
-  }async onOpen() {
+  }
+
+  async onOpen() {
     const container = this.containerEl.children[1];
     container.empty();
     container.addClass('todo-view-container');
@@ -183,7 +188,7 @@ class TodoView extends ItemView {
     this.filterSelect.add(new Option('近30天', '30days'));
     this.filterSelect.add(new Option('本周', 'week'));
     this.filterSelect.add(new Option('全部日期', 'all'));
-    this.filterSelect.addEventListener('change', () => this.renderTasks());
+    this.filterSelect.addEventListener('change', () => this.renderTasks(), { signal: this.signal });
     
     // 搜索框
     this.searchInput = filterSection.createEl('input', {
@@ -191,14 +196,14 @@ class TodoView extends ItemView {
       placeholder: '搜索待办...',
       cls: 'todo-search-input'
     });
-    this.searchInput.addEventListener('input', () => this.renderTasks());
+    this.searchInput.addEventListener('input', () => this.renderTasks(), { signal: this.signal });
     
     // 导出按钮
     const exportBtn = filterSection.createEl('button', {
       text: '导出Excel',
       cls: 'todo-export-button'
     });
-    exportBtn.addEventListener('click', () => this.showExportDialog());
+    exportBtn.addEventListener('click', () => this.showExportDialog(), { signal: this.signal });
     
     // 创建任务容器
     this.todoContainer = container.createEl('div', { cls: 'todo-container' });
@@ -239,7 +244,7 @@ class TodoView extends ItemView {
     buttonContainer.createEl('button', {
       text: '添加',
       cls: 'todo-add-button'
-    }).addEventListener('click', () => this.addTasks());
+    }).addEventListener('click', () => this.addTasks(), { signal: this.signal });
     
     buttonContainer.createEl('button', {
       text: '清空',
@@ -248,7 +253,7 @@ class TodoView extends ItemView {
       this.taskInput.value = '';
       this.taskLink.value = '';
       this.taskDueDate.value = '';
-    });
+    }, { signal: this.signal });
     
     // 回车添加任务，Shift+Enter 换行
     this.taskInput.addEventListener('keydown', (e) => {
@@ -256,24 +261,24 @@ class TodoView extends ItemView {
         e.preventDefault();
         this.addTasks();
       }
-    });
+    }, { signal: this.signal });
     
     // 自动调整输入框高度
     this.taskInput.addEventListener('input', () => {
       this.taskInput.style.height = 'auto';
       this.taskInput.style.height = Math.min(this.taskInput.scrollHeight, 200) + 'px';
-    });
+    }, { signal: this.signal });
 
     // 设置事件委托（优化性能）
-    this.setupEventDelegation();
+    this.setupEventDelegation(this.signal);
 
     // 渲染任务
     this.renderTasks();
   }
 
   // 设置事件委托（减少事件监听器数量）
-  setupEventDelegation() {
-    // 委托容器处理所有卡片事件
+  setupEventDelegation(signal) {
+    // 委托容器处理所有卡片事件（仅处理点击事件，拖拽事件由 createTaskCard 单独处理以确保不跨日期组）
     this.todoContainer.addEventListener('click', (e) => {
       const card = e.target.closest('.todo-card');
       if (!card) return;
@@ -287,44 +292,10 @@ class TodoView extends ItemView {
       if (e.target.classList.contains('todo-delete-button')) {
         this.handleTaskDelete(card.dataset.taskId);
       }
-    });
+    }, { signal });
 
-    // 委托容器处理拖拽事件
-    this.todoContainer.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      const draggingCard = this.todoContainer.querySelector('.todo-card-dragging');
-      if (draggingCard) {
-        const cards = Array.from(this.todoContainer.querySelectorAll('.todo-card:not(.todo-card-dragging)'));
-        const rect = draggingCard.getBoundingClientRect();
-        const midY = rect.top + rect.height / 2;
-        let insertBefore = null;
-        for (const card of cards) {
-          const cardRect = card.getBoundingClientRect();
-          if (e.clientY < cardRect.top + cardRect.height / 2) {
-            insertBefore = card;
-            break;
-          }
-        }
-        if (insertBefore) {
-          this.todoContainer.insertBefore(draggingCard, insertBefore);
-        } else {
-          this.todoContainer.appendChild(draggingCard);
-        }
-      }
-    });
-
-    this.todoContainer.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      const draggingCard = this.todoContainer.querySelector('.todo-card-dragging');
-      if (draggingCard) {
-        const taskId = draggingCard.dataset.taskId;
-        const task = this.plugin.findTaskById(taskId);
-        if (task) {
-          await this.saveTasksOrder(this.todoContainer, task.date);
-        }
-      }
-    });
+    // 注：拖拽排序事件由 createTaskCard 中的事件处理程序管理
+    // 这样可以确保拖拽只能在同一日期组内进行，避免跨日期移动任务
   }
 
   // 处理任务完成状态变化
@@ -345,6 +316,8 @@ class TodoView extends ItemView {
 
   async onClose() {
     // 视图关闭时的清理工作
+    // 使用 AbortController 清理所有事件监听器
+    this.abortController.abort();
   }
 
   // 添加任务（带输入验证）
@@ -499,7 +472,7 @@ class TodoView extends ItemView {
             await this.plugin.deleteTasksByDate(dateTask.date);
             this.renderTasks();
           }
-        });
+        }, { signal: this.signal });
         dateHeader.appendChild(clearBtn);
         dateSection.appendChild(dateHeader);
 
@@ -516,7 +489,7 @@ class TodoView extends ItemView {
         incompleteBtn.className = 'todo-status-button todo-status-active';
         incompleteBtn.addEventListener('click', (e) => {
           this.updateStatusFilter(e.target, tasksContainer, 'incomplete');
-        });
+        }, { signal: this.signal });
         statusFilter.appendChild(incompleteBtn);
 
         const completedBtn = document.createElement('button');
@@ -524,7 +497,7 @@ class TodoView extends ItemView {
         completedBtn.className = 'todo-status-button';
         completedBtn.addEventListener('click', (e) => {
           this.updateStatusFilter(e.target, tasksContainer, 'completed');
-        });
+        }, { signal: this.signal });
         statusFilter.appendChild(completedBtn);
         tasksContainer.appendChild(statusFilter);
 
@@ -730,11 +703,11 @@ class TodoView extends ItemView {
       card.classList.add('todo-card-dragging');
       e.dataTransfer.setData('text/plain', task.taskId);
       e.dataTransfer.effectAllowed = 'move';
-    });
+    }, { signal: this.signal });
     
     card.addEventListener('dragend', () => {
       card.classList.remove('todo-card-dragging');
-    });
+    }, { signal: this.signal });
     
     card.addEventListener('dragover', (e) => {
       e.preventDefault();
@@ -749,12 +722,12 @@ class TodoView extends ItemView {
           container.insertBefore(draggingCard, card.nextSibling);
         }
       }
-    });
+    }, { signal: this.signal });
     
     card.addEventListener('drop', async (e) => {
       e.preventDefault();
       await this.saveTasksOrder(container, taskDate);
-    });
+    }, { signal: this.signal });
     
     const checkbox = card.createEl('input', {
       type: 'checkbox',
@@ -772,11 +745,11 @@ class TodoView extends ItemView {
     }
     
     const safeContent = SecurityService.sanitizeInput(task.content);
-    content.createEl('p', { html: safeContent, cls: 'todo-text' });
+    content.createEl('p', { text: safeContent, cls: 'todo-text' });
     
     content.addEventListener('dblclick', () => {
       this.showEditDialog(task, card);
-    });
+    }, { signal: this.signal });
     
     if (task.dueDate) {
       content.createEl('p', { 
@@ -810,6 +783,10 @@ class TodoView extends ItemView {
     const newOrder = [];
     cards.forEach(card => {
       const taskId = card.dataset.taskId;
+      const cardDate = card.dataset.date;
+      // 安全检查：只保存属于当前日期组的任务，防止跨日期移动
+      if (cardDate !== taskDate) return;
+      
       const task = this.plugin.findTaskById(taskId);
       if (task) {
         newOrder.push(task);
@@ -1084,17 +1061,6 @@ class TodoKanbanPlugin extends Plugin {
     return this.tasksData.tasks.find(t => t.date === date);
   }
 
-  // 根据ID查找任务
-  findTaskById(taskId) {
-    for (const dateTask of this.tasksData.tasks) {
-      const task = dateTask.tasksList.find(t => t.taskId === taskId);
-      if (task) {
-        return task;
-      }
-    }
-    return null;
-  }
-
   // 更新任务顺序
   async updateTasksOrder(date, newOrder) {
     const dateTask = this.tasksData.tasks.find(t => t.date === date);
@@ -1309,18 +1275,26 @@ class EditModal extends Modal {
         return;
       }
       
-      // 更新任务数据
-      this.task.content = newContent;
-      this.task.link = linkInput.value.trim() || null;
-      this.task.dueDate = dateInput.value || null;
-      
-      // 保存到插件数据
-      await this.view.plugin.updateTask(this.task.taskId, this.task);
-      
-      // 重新渲染任务列表以触发排序
-      this.view.renderTasks();
-      
-      this.close();
+      try {
+        // 验证和消毒任务内容
+        const validatedContent = SecurityService.validateTaskContent(newContent);
+        const safeLink = SecurityService.sanitizeLink(linkInput.value.trim());
+        
+        // 更新任务数据
+        this.task.content = validatedContent;
+        this.task.link = safeLink || null;
+        this.task.dueDate = dateInput.value || null;
+        
+        // 保存到插件数据
+        await this.view.plugin.updateTask(this.task.taskId, this.task);
+        
+        // 重新渲染任务列表以触发排序
+        this.view.renderTasks();
+        
+        this.close();
+      } catch (error) {
+        ErrorHandler.handle(error, '编辑任务');
+      }
     });
     
     buttonRow.createEl('button', { text: '取消', cls: 'edit-cancel-btn' }).addEventListener('click', () => {
