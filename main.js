@@ -94,9 +94,12 @@ class TimerManager {
   }
 }
 
-// 格式化日期为 YYYY-MM-DD
+// 格式化日期为 YYYY-MM-DD（使用本地时间，避免时区问题）
 function formatDate(date) {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 // 格式化时间为 YYYY-MM-DD HH:MM
@@ -130,6 +133,37 @@ function formatWeek(date) {
   const start = getWeekStartDate(date);
   const end = getWeekEndDate(date);
   return `${formatDate(start)} ~ ${formatDate(end)}`;
+}
+
+// 任务优先级定义
+const PRIORITY = {
+  HIGH: { value: 'high', label: '高', order: 0, color: '#ff5555' },
+  MEDIUM: { value: 'medium', label: '中', order: 1, color: '#ffaa00' },
+  LOW: { value: 'low', label: '低', order: 2, color: '#55aa55' },
+  NONE: { value: 'none', label: '无', order: 3, color: null }
+};
+
+// 获取优先级配置
+function getPriorityConfig(priorityValue) {
+  return Object.values(PRIORITY).find(p => p.value === priorityValue) || PRIORITY.NONE;
+}
+
+// 解析任务内容中的标签 (#tag)
+function parseTags(content) {
+  if (!content || typeof content !== 'string') return [];
+  const tagRegex = /#([\w\u4e00-\u9fa5\-_]+)/g;
+  const tags = [];
+  let match;
+  while ((match = tagRegex.exec(content)) !== null) {
+    tags.push(match[1]);
+  }
+  return [...new Set(tags)]; // 去重
+}
+
+// 移除内容中的标签标记，返回纯文本
+function removeTags(content) {
+  if (!content || typeof content !== 'string') return content;
+  return content.replace(/#[\w\u4e00-\u9fa5\-_]+/g, '').replace(/\s+/g, ' ').trim();
 }
 
 // 判断任务是否为紧急置顶任务（截止日期前一天开始置顶）
@@ -204,7 +238,29 @@ class TodoView extends ItemView {
       cls: 'todo-export-button'
     });
     exportBtn.addEventListener('click', () => this.showExportDialog(), { signal: this.signal });
-    
+
+    // 标签筛选区域（初始隐藏）
+    this.tagFilterSection = container.createEl('div', { cls: 'todo-tag-filter-section' });
+    this.tagFilterSection.style.display = 'none';
+    this.tagFilterSection.createEl('label', { text: '标签筛选：', cls: 'todo-filter-label' });
+    this.tagFilterBadge = this.tagFilterSection.createEl('span', { cls: 'todo-tag-filter-badge' });
+    const clearTagBtn = this.tagFilterSection.createEl('button', {
+      text: '清除',
+      cls: 'todo-clear-tag-btn'
+    });
+    clearTagBtn.addEventListener('click', () => this.clearTagFilter(), { signal: this.signal });
+
+    // 优先级筛选区域
+    const priorityFilterSection = container.createEl('div', { cls: 'todo-priority-filter-section' });
+    priorityFilterSection.createEl('label', { text: '优先级：', cls: 'todo-filter-label' });
+    this.priorityFilterSelect = priorityFilterSection.createEl('select', { cls: 'todo-filter-select' });
+    this.priorityFilterSelect.add(new Option('全部', 'all'));
+    this.priorityFilterSelect.add(new Option('高', 'high'));
+    this.priorityFilterSelect.add(new Option('中', 'medium'));
+    this.priorityFilterSelect.add(new Option('低', 'low'));
+    this.priorityFilterSelect.add(new Option('无', 'none'));
+    this.priorityFilterSelect.addEventListener('change', () => this.renderTasks(), { signal: this.signal });
+
     // 创建任务容器
     this.todoContainer = container.createEl('div', { cls: 'todo-container' });
     this.todoContainer.style.flex = '1 1 0';
@@ -233,12 +289,32 @@ class TodoView extends ItemView {
     
     // 截止日期输入（可选）
     const dateRow = inputSection.createEl('div', { cls: 'todo-input-row' });
+    dateRow.style.cursor = 'pointer';
     dateRow.createEl('label', { text: '截止日期（可选）：', cls: 'todo-input-label' });
     this.taskDueDate = dateRow.createEl('input', {
       type: 'date',
       cls: 'todo-date-input'
     });
-    
+    // 点击整行触发日期选择器
+    dateRow.addEventListener('click', (e) => {
+      if (e.target !== this.taskDueDate) {
+        e.stopPropagation();
+        setTimeout(() => {
+          this.taskDueDate.focus();
+          this.taskDueDate.click();
+        }, 0);
+      }
+    }, { signal: this.signal });
+
+    // 优先级选择（可选）
+    const priorityRow = inputSection.createEl('div', { cls: 'todo-input-row' });
+    priorityRow.createEl('label', { text: '优先级（可选）：', cls: 'todo-input-label' });
+    this.taskPriority = priorityRow.createEl('select', { cls: 'todo-priority-select' });
+    this.taskPriority.add(new Option('无', 'none'));
+    this.taskPriority.add(new Option('高', 'high'));
+    this.taskPriority.add(new Option('中', 'medium'));
+    this.taskPriority.add(new Option('低', 'low'));
+
     // 按钮容器
     const buttonContainer = inputSection.createEl('div', { cls: 'todo-input-buttons' });
     buttonContainer.createEl('button', {
@@ -330,9 +406,10 @@ class TodoView extends ItemView {
     const dateStr = formatDate(today);
     const timeStr = formatDateTime(today);
 
-    // 获取链接和截止日期
+    // 获取链接、截止日期和优先级
     const link = this.taskLink.value.trim() || null;
     const dueDate = this.taskDueDate.value || null;
+    const priority = this.taskPriority.value !== 'none' ? this.taskPriority.value : null;
 
     // 安全处理链接
     const safeLink = SecurityService.sanitizeLink(link);
@@ -348,7 +425,8 @@ class TodoView extends ItemView {
           completed: false,
           createAt: timeStr,
           link: safeLink,
-          dueDate: dueDate
+          dueDate: dueDate,
+          priority: priority
         };
 
         await this.plugin.addTask(dateStr, newTask);
@@ -361,6 +439,7 @@ class TodoView extends ItemView {
     this.taskInput.value = '';
     this.taskLink.value = '';
     this.taskDueDate.value = '';
+    this.taskPriority.value = 'none';
     this.renderTasks();
   }
 
@@ -407,6 +486,37 @@ class TodoView extends ItemView {
           const linkMatch = task.link && task.link.toLowerCase().includes(searchKeyword);
           const dueDateMatch = task.dueDate && task.dueDate.includes(searchKeyword);
           return contentMatch || linkMatch || dueDateMatch;
+        });
+        return {
+          ...dateTask,
+          tasksList: filteredTasksList
+        };
+      }).filter(dateTask => dateTask.tasksList.length > 0);
+    }
+
+    // 标签筛选
+    if (this.currentTagFilter) {
+      filteredTasks = filteredTasks.map(dateTask => {
+        const filteredTasksList = dateTask.tasksList.filter(task => {
+          const tags = parseTags(task.content);
+          return tags.includes(this.currentTagFilter);
+        });
+        return {
+          ...dateTask,
+          tasksList: filteredTasksList
+        };
+      }).filter(dateTask => dateTask.tasksList.length > 0);
+    }
+
+    // 优先级筛选
+    const priorityFilter = this.priorityFilterSelect?.value;
+    if (priorityFilter && priorityFilter !== 'all') {
+      filteredTasks = filteredTasks.map(dateTask => {
+        const filteredTasksList = dateTask.tasksList.filter(task => {
+          if (priorityFilter === 'none') {
+            return !task.priority;
+          }
+          return task.priority === priorityFilter;
         });
         return {
           ...dateTask,
@@ -505,7 +615,7 @@ class TodoView extends ItemView {
         const tasksList = document.createElement('div');
         tasksList.className = 'todo-tasks-list';
 
-        // 按截止时间排序：紧急置顶任务优先，无截止时间的在最上面，有截止时间的按时间从近到远排序
+        // 排序逻辑：紧急任务 > 优先级 > 截止时间
         const sortedTasks = [...dateTask.tasksList].sort((a, b) => {
           const aIsUrgent = isUrgentTask(a, todayStr);
           const bIsUrgent = isUrgentTask(b, todayStr);
@@ -513,6 +623,13 @@ class TodoView extends ItemView {
           // 紧急任务置顶
           if (aIsUrgent && !bIsUrgent) return -1;
           if (!aIsUrgent && bIsUrgent) return 1;
+
+          // 优先级排序（高优先级在前）
+          const aPriority = getPriorityConfig(a.priority).order;
+          const bPriority = getPriorityConfig(b.priority).order;
+          if (aPriority !== bPriority) {
+            return aPriority - bPriority;
+          }
 
           // 如果a没有截止时间，a排在前面
           if (!a.dueDate && b.dueDate) return -1;
@@ -568,6 +685,25 @@ class TodoView extends ItemView {
         card.style.display = 'none';
       }
     });
+  }
+
+  // 设置标签筛选
+  setTagFilter(tag) {
+    this.currentTagFilter = tag;
+    if (this.tagFilterSection) {
+      this.tagFilterSection.style.display = 'flex';
+      this.tagFilterBadge.textContent = `#${tag}`;
+    }
+    this.renderTasks();
+  }
+
+  // 清除标签筛选
+  clearTagFilter() {
+    this.currentTagFilter = null;
+    if (this.tagFilterSection) {
+      this.tagFilterSection.style.display = 'none';
+    }
+    this.renderTasks();
   }
 
   // 显示编辑对话框
@@ -743,8 +879,35 @@ class TodoView extends ItemView {
     if (isUrgent) {
       content.createEl('span', { text: '🔴 紧急', cls: 'todo-urgent-badge' });
     }
-    
-    const safeContent = SecurityService.sanitizeInput(task.content);
+
+    // 优先级标识
+    if (task.priority) {
+      const priorityConfig = getPriorityConfig(task.priority);
+      const priorityBadge = content.createEl('span', {
+        text: priorityConfig.label,
+        cls: 'todo-priority-badge'
+      });
+      priorityBadge.style.backgroundColor = priorityConfig.color + '20'; // 20% 透明度
+      priorityBadge.style.color = priorityConfig.color;
+    }
+
+    // 标签显示
+    const tags = parseTags(task.content);
+    if (tags.length > 0) {
+      const tagsContainer = content.createEl('div', { cls: 'todo-tags-container' });
+      tags.forEach(tag => {
+        const tagEl = tagsContainer.createEl('span', {
+          text: `#${tag}`,
+          cls: 'todo-tag'
+        });
+        tagEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.setTagFilter(tag);
+        }, { signal: this.signal });
+      });
+    }
+
+    const safeContent = SecurityService.sanitizeInput(removeTags(task.content));
     content.createEl('p', { text: safeContent, cls: 'todo-text' });
     
     content.addEventListener('dblclick', () => {
@@ -799,7 +962,7 @@ class TodoView extends ItemView {
 class TodoKanbanPlugin extends Plugin {
   constructor(app, manifest) {
     super(app, manifest);
-    this.tasksData = { version: '1.1.0', tasks: [], lastModified: new Date().toISOString() };
+    this.tasksData = { version: '1.2.0', tasks: [], lastModified: new Date().toISOString() };
     this.taskIdIndex = new Map(); // taskId -> { date, task }
     this.dateIndex = new Map();   // date -> dateTask
     this.timerManager = new TimerManager(); // 定时器管理器
@@ -830,11 +993,26 @@ class TodoKanbanPlugin extends Plugin {
     if (!oldData.version) {
       // 从旧版本迁移
       return {
-        version: '1.1.0',
+        version: '1.2.0',
         tasks: oldData.tasks || [],
         lastModified: new Date().toISOString()
       };
     }
+
+    // 版本 1.1.0 -> 1.2.0：添加 priority 字段支持
+    if (oldData.version === '1.1.0') {
+      // 为所有任务添加 priority 字段（如果不存在则设为 null）
+      for (const dateTask of oldData.tasks) {
+        for (const task of dateTask.tasksList) {
+          if (!task.hasOwnProperty('priority')) {
+            task.priority = null;
+          }
+        }
+      }
+      oldData.version = '1.2.0';
+      oldData.lastModified = new Date().toISOString();
+    }
+
     return oldData;
   }
 
@@ -907,7 +1085,7 @@ class TodoKanbanPlugin extends Plugin {
 
         this.tasksData = parsedData;
       } else {
-        this.tasksData = { version: '1.1.0', tasks: [], lastModified: new Date().toISOString() };
+        this.tasksData = { version: '1.2.0', tasks: [], lastModified: new Date().toISOString() };
         await this.saveTasks();
       }
 
@@ -915,7 +1093,7 @@ class TodoKanbanPlugin extends Plugin {
       this.buildIndexes();
     } catch (error) {
       console.error('Failed to load tasks:', error);
-      this.tasksData = { version: '1.1.0', tasks: [], lastModified: new Date().toISOString() };
+      this.tasksData = { version: '1.2.0', tasks: [], lastModified: new Date().toISOString() };
       this.buildIndexes();
     }
   }
@@ -942,6 +1120,7 @@ class TodoKanbanPlugin extends Plugin {
   }
 
   // 自动继承历史未完成任务到今天（移动而非复制）
+  // 返回是否有变化
   async inheritIncompleteTasks() {
     const today = new Date();
     const todayStr = formatDate(today);
@@ -1007,6 +1186,8 @@ class TodoKanbanPlugin extends Plugin {
       await this.saveTasks();
       console.log('Moved incomplete tasks to today');
     }
+
+    return hasChanges;
   }
   
   // 设置凌晨1点的定时任务（使用定时器管理器）
@@ -1028,10 +1209,25 @@ class TodoKanbanPlugin extends Plugin {
 
     this.timerManager.setTimeout(async () => {
       console.log('Running scheduled inherit task at 1 AM');
-      await this.inheritIncompleteTasks();
+      const hasChanges = await this.inheritIncompleteTasks();
+      // 如果有变化，通知所有视图刷新
+      if (hasChanges) {
+        this.notifyViewsToRefresh();
+      }
       // 重新设置下一次定时任务
       this.setupDailyInheritTimer();
     }, delay);
+  }
+
+  // 通知所有待办视图刷新
+  notifyViewsToRefresh() {
+    const leaves = this.app.workspace.getLeavesOfType('todo-kanban-view');
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (view && view.renderTasks) {
+        view.renderTasks();
+      }
+    }
   }
 
   // 添加任务
@@ -1258,39 +1454,61 @@ class EditModal extends Modal {
     
     // 截止日期
     const dateRow = contentEl.createEl('div', { cls: 'edit-row' });
+    dateRow.style.cursor = 'pointer';
     dateRow.createEl('label', { text: '截止日期：' });
-    const dateInput = dateRow.createEl('input', { 
+    const dateInput = dateRow.createEl('input', {
       type: 'date',
       cls: 'edit-input',
       value: this.task.dueDate || ''
     });
-    
+    // 点击整行触发日期选择器
+    dateRow.addEventListener('click', (e) => {
+      if (e.target !== dateInput) {
+        e.stopPropagation();
+        setTimeout(() => {
+          dateInput.focus();
+          dateInput.click();
+        }, 0);
+      }
+    });
+
+    // 优先级
+    const priorityRow = contentEl.createEl('div', { cls: 'edit-row' });
+    priorityRow.createEl('label', { text: '优先级：' });
+    const priorityInput = priorityRow.createEl('select', { cls: 'edit-input' });
+    priorityInput.add(new Option('无', 'none'));
+    priorityInput.add(new Option('高', 'high'));
+    priorityInput.add(new Option('中', 'medium'));
+    priorityInput.add(new Option('低', 'low'));
+    priorityInput.value = this.task.priority || 'none';
+
     // 按钮区域
     const buttonRow = contentEl.createEl('div', { cls: 'edit-buttons' });
-    
+
     buttonRow.createEl('button', { text: '保存', cls: 'edit-confirm-btn' }).addEventListener('click', async () => {
       const newContent = contentInput.value.trim();
       if (!newContent) {
         alert('任务内容不能为空');
         return;
       }
-      
+
       try {
         // 验证和消毒任务内容
         const validatedContent = SecurityService.validateTaskContent(newContent);
         const safeLink = SecurityService.sanitizeLink(linkInput.value.trim());
-        
+
         // 更新任务数据
         this.task.content = validatedContent;
         this.task.link = safeLink || null;
         this.task.dueDate = dateInput.value || null;
-        
+        this.task.priority = priorityInput.value !== 'none' ? priorityInput.value : null;
+
         // 保存到插件数据
         await this.view.plugin.updateTask(this.task.taskId, this.task);
-        
+
         // 重新渲染任务列表以触发排序
         this.view.renderTasks();
-        
+
         this.close();
       } catch (error) {
         ErrorHandler.handle(error, '编辑任务');

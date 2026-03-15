@@ -43,12 +43,16 @@
   margin-bottom: 0.5rem;
 }
 
+.todo-input-row:has(input[type="date"]) {
+  cursor: pointer;
+}
+
 .todo-input-row label {
   font-size: 14px;
   color: var(--text-secondary);
   min-width: 80px;
 }
-.todo-link-input, .todo-date-input {
+.todo-link-input, .todo-date-input, .todo-priority-select {
   flex: 1;
   padding: 0.5rem;
   border: 1px solid var(--background-modifier-border);
@@ -56,6 +60,9 @@
   background-color: var(--background-primary);
   color: var(--text-primary);
   font-size: 14px;
+  line-height: 1.5;
+  min-height: 36px;
+  box-sizing: border-box;
 }
 .todo-due-date {
   font-size: 12px;
@@ -173,6 +180,97 @@
   border-radius: 3px;
   margin-bottom: 4px;
   font-weight: 500;
+}
+
+.todo-priority-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 2px 8px;
+  border-radius: 3px;
+  margin-bottom: 4px;
+  margin-right: 6px;
+  font-weight: 500;
+  white-space: nowrap;
+  min-height: 18px;
+}
+
+/* 优先级下拉框额外样式 */
+.todo-priority-select {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* 标签相关样式 */
+.todo-tags-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.todo-tag {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--interactive-accent);
+  background-color: var(--background-secondary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.todo-tag:hover {
+  background-color: var(--interactive-accent);
+  color: white;
+}
+
+/* 标签筛选区域 */
+.todo-tag-filter-section {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.todo-tag-filter-badge {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--interactive-accent);
+  background-color: var(--background-primary);
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--interactive-accent);
+}
+
+.todo-clear-tag-btn {
+  padding: 2px 8px;
+  font-size: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  background-color: var(--background-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.todo-clear-tag-btn:hover {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-primary);
+}
+
+/* 优先级筛选区域 */
+.todo-priority-filter-section {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .todo-card-dragging {
@@ -397,6 +495,10 @@
   margin-bottom: 1rem;
 }
 
+.edit-row:has(input[type="date"]) {
+  cursor: pointer;
+}
+
 .edit-row label {
   font-size: 14px;
   color: var(--text-secondary);
@@ -409,6 +511,10 @@
   background-color: var(--background-primary);
   color: var(--text-primary);
   font-size: 14px;
+  line-height: 1.5;
+  min-height: 36px;
+  font-family: inherit;
+  box-sizing: border-box;
 }
 
 .edit-content-input {

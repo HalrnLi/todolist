@@ -9,16 +9,18 @@ An Obsidian plugin that focuses on "daily todo management" and "historical todo 
 ### 当日待办看板 / Daily Todo Kanban
 - **任务输入**：支持单行/多行任务输入，按 Enter 键添加，Shift+Enter 换行
 - **Task Input**: Supports single-line/multi-line task input. Press Enter to add, Shift+Enter for new line
-- **附加信息**：添加任务时可选择附带链接和截止日期
-- **Additional Info**: Optionally add links and due dates when creating tasks
+- **附加信息**：添加任务时可选择附带链接、截止日期和优先级
+- **Additional Info**: Optionally add links, due dates and priority when creating tasks
+- **任务标签**：支持在任务内容中使用 `#标签` 语法添加标签，点击标签快速筛选
+- **Task Tags**: Supports `#tag` syntax in task content, click tags to quickly filter
 - **看板展示**：分为「未完成」「已完成」两个分区，卡片式展示
 - **Kanban Display**: Divided into "Incomplete" and "Completed" sections with card-style display
 - **交互操作**：点击勾选框切换完成状态，勾选后自动从当前筛选视图中移除
 - **Interactive Operations**: Click checkbox to toggle completion status, automatically removed from current filter view after checking
-- **双击编辑**：双击任务内容可编辑任务信息（内容、链接、截止日期）
-- **Double-click Edit**: Double-click task content to edit task info (content, link, due date)
-- **智能排序**：紧急任务（截止日期前一天）自动置顶显示，无截止时间的任务次之，有截止时间的按时间排序
-- **Smart Sorting**: Urgent tasks (one day before due date) are pinned at top, tasks without due date next, then sorted by due date
+- **双击编辑**：双击任务内容可编辑任务信息（内容、链接、截止日期、优先级）
+- **Double-click Edit**: Double-click task content to edit task info (content, link, due date, priority)
+- **智能排序**：紧急任务（截止日期前一天）自动置顶显示，按优先级排序，无截止时间的任务次之，有截止时间的按时间排序
+- **Smart Sorting**: Urgent tasks (one day before due date) are pinned at top, sorted by priority, tasks without due date next, then sorted by due date
 - **拖拽排序**：支持拖拽任务卡片调整顺序
 - **Drag to Reorder**: Drag task cards to adjust order
 
@@ -40,9 +42,13 @@ An Obsidian plugin that focuses on "daily todo management" and "historical todo 
 - **避免重复**：智能检测已移动的任务，历史任务移动后自动从原日期删除
 - **Avoid Duplicates**: Smart detection of moved tasks, historical tasks are removed from original date after moving
 
-### 搜索功能 / Search
+### 搜索与筛选 / Search & Filter
 - **关键词搜索**：支持搜索任务内容、链接、截止日期
 - **Keyword Search**: Supports searching task content, links, and due dates
+- **标签筛选**：点击任务中的标签或选择标签快速筛选相关任务
+- **Tag Filter**: Click tags in tasks or select tags to filter related tasks
+- **优先级筛选**：支持按优先级（高/中/低/无）筛选任务
+- **Priority Filter**: Filter tasks by priority (High/Medium/Low/None)
 - **实时过滤**：输入即搜索，实时更新任务列表
 - **Real-time Filtering**: Search as you type, real-time task list updates
 - **不区分大小写**：搜索时忽略大小写
@@ -74,10 +80,11 @@ An Obsidian plugin that focuses on "daily todo management" and "historical todo 
 - Click the "Todo Kanban" icon (checkbox icon) in Obsidian's left sidebar to open the todo panel
 
 ### 添加任务 / Add Task
-1. 在底部输入框中输入任务内容 / Enter task content in the bottom input box
+1. 在底部输入框中输入任务内容（支持 `#标签` 语法） / Enter task content in the bottom input box (supports `#tag` syntax)
 2. 可选：填写链接（支持任意URL） / Optional: Fill in link (supports any URL)
 3. 可选：选择截止日期 / Optional: Select due date
-4. 按 Enter 键或点击「添加」按钮添加任务 / Press Enter or click "Add" button to add task
+4. 可选：选择优先级（高/中/低） / Optional: Select priority (High/Medium/Low)
+5. 按 Enter 键或点击「添加」按钮添加任务 / Press Enter or click "Add" button to add task
 
 ### 编辑任务 / Edit Task
 - 双击任务内容区域，弹出编辑对话框 / Double-click task content area to open edit dialog
@@ -87,7 +94,9 @@ An Obsidian plugin that focuses on "daily todo management" and "historical todo 
 ### 筛选与搜索 / Filter & Search
 1. **日期筛选**：在顶部下拉框中选择日期范围 / **Date Filter**: Select date range in top dropdown
 2. **关键词搜索**：在搜索框中输入关键词实时搜索 / **Keyword Search**: Enter keywords in search box for real-time search
-3. **状态筛选**：在每个日期分组下选择「未完成」或「已完成」 / **Status Filter**: Select "Incomplete" or "Completed" under each date group
+3. **标签筛选**：点击任务卡片中的标签，或点击标签筛选区域的「清除」按钮取消筛选 / **Tag Filter**: Click tags in task cards, or click "Clear" to remove filter
+4. **优先级筛选**：在顶部优先级下拉框中选择优先级筛选 / **Priority Filter**: Select priority in top dropdown to filter
+5. **状态筛选**：在每个日期分组下选择「未完成」或「已完成」 / **Status Filter**: Select "Incomplete" or "Completed" under each date group
 
 ### 导出任务 / Export Tasks
 1. 点击顶部「导出Excel」按钮 / Click "Export Excel" button at top
@@ -109,6 +118,7 @@ Task data is stored in JSON format in `.obsidian/plugins/todo_kanban/tasks.json`
 ### 数据结构 / Data Structure
 ```json
 {
+  "version": "1.2.0",
   "tasks": [
     {
       "date": "2026-03-08",
@@ -116,17 +126,25 @@ Task data is stored in JSON format in `.obsidian/plugins/todo_kanban/tasks.json`
       "tasksList": [
         {
           "taskId": "unique-id",
-          "content": "任务内容 / Task content",
+          "content": "任务内容 #工作 #重要",
           "completed": false,
           "createAt": "2026-03-08 10:00",
           "link": "https://example.com",
-          "dueDate": "2026-03-10"
+          "dueDate": "2026-03-10",
+          "priority": "high"
         }
       ]
     }
-  ]
+  ],
+  "lastModified": "2026-03-08T10:00:00.000Z"
 }
 ```
+
+**优先级说明 / Priority Notes:**
+- `high` - 高优先级 (红色 / Red)
+- `medium` - 中优先级 (橙色 / Orange)
+- `low` - 低优先级 (绿色 / Green)
+- `null` 或不存在 - 无优先级 (None)
 
 ## 技术说明 / Technical Notes
 
@@ -150,6 +168,18 @@ Task data is stored in JSON format in `.obsidian/plugins/todo_kanban/tasks.json`
 - 历史未完成任务会在每天凌晨1点自动移动到今天 / Incomplete historical tasks are automatically moved to today at 1 AM daily
 
 ## 更新日志 / Changelog
+
+### v1.1.0
+- **修复**：修复 `formatDate` 时区问题，使用本地时间而非 UTC 时间
+  - Fixed: Fixed `formatDate` timezone issue, now uses local time instead of UTC
+- **修复**：修复凌晨1点自动移动任务后 UI 不自动刷新的问题
+  - Fixed: Fixed UI not auto-refreshing after scheduled task move at 1 AM
+- **新增**：任务优先级功能（高/中/低），支持优先级筛选和排序
+  - Added: Task priority feature (High/Medium/Low), with priority filtering and sorting
+- **新增**：任务标签功能，支持 `#标签` 语法，点击标签可快速筛选
+  - Added: Task tags feature, supports `#tag` syntax, click tags to filter
+- **新增**：优先级筛选下拉框，可按优先级筛选任务
+  - Added: Priority filter dropdown to filter tasks by priority
 
 ### v1.0.2
 - 新增：紧急任务置顶功能，截止日期前一天开始自动置顶显示，带红色边框和"紧急"标识

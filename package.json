@@ -1,7 +1,7 @@
 {
   "name": "todolist",
-  "version": "1.0.0",
-  "description": "A kanban-style todo manager for Obsidian",
+  "version": "1.1.0",
+  "description": "A kanban-style todo manager for Obsidian with priority and tags support",
   "main": "main.js",
   "scripts": {
     "dev": "tsc -watch",
@@ -11,7 +11,9 @@
     "obsidian",
     "plugin",
     "todo",
-    "kanban"
+    "kanban",
+    "priority",
+    "tags"
   ],
   "author": "lilingtao",
   "license": "MIT",
