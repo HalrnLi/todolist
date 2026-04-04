@@ -320,38 +320,45 @@ class TodoKanbanPlugin extends Plugin {
     }
   }
 
-  // 更新任务
+  // 更新任务（使用 taskIdIndex 索引优化查找）
   async updateTask(taskId, updatedTask) {
-    for (const dateTask of this.tasksData.tasks) {
-      const taskIndex = dateTask.tasksList.findIndex(t => t.taskId === taskId);
-      if (taskIndex !== -1) {
-        // 使用深拷贝创建新的任务对象，避免引用问题
-        dateTask.tasksList[taskIndex] = JSON.parse(JSON.stringify(updatedTask));
-        await this.saveTasks();
-        return;
-      }
-    }
+    const indexed = this.taskIdIndex.get(taskId);
+    if (!indexed) return;
+
+    const { date } = indexed;
+    const dateTask = this.dateIndex.get(date);
+    if (!dateTask) return;
+
+    const taskIndex = dateTask.tasksList.findIndex(t => t.taskId === taskId);
+    if (taskIndex === -1) return;
+
+    dateTask.tasksList[taskIndex] = JSON.parse(JSON.stringify(updatedTask));
+    await this.saveTasks();
   }
 
-  // 删除任务
+  // 删除任务（使用 taskIdIndex 索引优化查找）
   async deleteTask(taskId) {
-    for (const dateTask of this.tasksData.tasks) {
-      const taskIndex = dateTask.tasksList.findIndex(t => t.taskId === taskId);
-      if (taskIndex !== -1) {
-        dateTask.tasksList.splice(taskIndex, 1);
-        
-        // 如果该日期没有任务了，删除日期任务组
-        if (dateTask.tasksList.length === 0) {
-          const dateTaskIndex = this.tasksData.tasks.findIndex(t => t.date === dateTask.date);
-          if (dateTaskIndex !== -1) {
-            this.tasksData.tasks.splice(dateTaskIndex, 1);
-          }
-        }
-        
-        await this.saveTasks();
-        return;
+    const indexed = this.taskIdIndex.get(taskId);
+    if (!indexed) return;
+
+    const { date } = indexed;
+    const dateTask = this.dateIndex.get(date);
+    if (!dateTask) return;
+
+    const taskIndex = dateTask.tasksList.findIndex(t => t.taskId === taskId);
+    if (taskIndex === -1) return;
+
+    dateTask.tasksList.splice(taskIndex, 1);
+
+    // 如果该日期没有任务了，删除日期任务组
+    if (dateTask.tasksList.length === 0) {
+      const dateTaskIndex = this.tasksData.tasks.findIndex(t => t.date === dateTask.date);
+      if (dateTaskIndex !== -1) {
+        this.tasksData.tasks.splice(dateTaskIndex, 1);
       }
     }
+
+    await this.saveTasks();
   }
 
   // 根据日期删除所有任务

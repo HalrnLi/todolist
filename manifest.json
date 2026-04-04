@@ -1,7 +1,7 @@
 {
   "id": "todolist",
   "name": "Todo List for Obsidian",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "minAppVersion": "1.0.0",
   "description": "A kanban-style todo manager for Obsidian with priority, tags, daily task management and historical task visualization",
   "author": "HarlanLi",
