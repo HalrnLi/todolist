@@ -1,4 +1,6 @@
 // 生成唯一ID - 使用 crypto.randomUUID()
+// 注意：crypto 是 Web API，Obsidian 内置 Electron 环境已支持
+// 如果在浏览器环境运行需要引入 polyfill
 function generateUUID() {
   return crypto.randomUUID();
 }

@@ -5,9 +5,6 @@ const SecurityService = require('../services/SecurityService');
 const EditModal = require('../modals/EditModal');
 const ExportModal = require('../modals/ExportModal');
 
-// 搜索防抖定时器
-let searchDebounceTimer = null;
-
 // 待办视图
 class TodoView extends ItemView {
   constructor(leaf, plugin, errorHandler) {
@@ -17,6 +14,8 @@ class TodoView extends ItemView {
     // 用于清理事件监听器的 AbortController
     this.abortController = new AbortController();
     this.signal = this.abortController.signal;
+    // 搜索防抖定时器（作为实例属性）
+    this.searchDebounceTimer = null;
   }
 
   getViewType() {
@@ -73,11 +72,11 @@ class TodoView extends ItemView {
     });
     this.searchInput.addEventListener('input', () => {
       // 清除之前的定时器
-      if (searchDebounceTimer) {
-        clearTimeout(searchDebounceTimer);
+      if (this.searchDebounceTimer) {
+        clearTimeout(this.searchDebounceTimer);
       }
       // 设置新的防抖定时器（150-200ms）
-      searchDebounceTimer = setTimeout(() => {
+      this.searchDebounceTimer = setTimeout(() => {
         this.renderTasks();
       }, 150);
     }, { signal: this.signal });
@@ -234,9 +233,9 @@ class TodoView extends ItemView {
     // 使用 AbortController 清理所有事件监听器
     this.abortController.abort();
     // 清理搜索防抖定时器
-    if (searchDebounceTimer) {
-      clearTimeout(searchDebounceTimer);
-      searchDebounceTimer = null;
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = null;
     }
   }
 
