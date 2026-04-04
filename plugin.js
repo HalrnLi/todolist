@@ -325,8 +325,8 @@ class TodoKanbanPlugin extends Plugin {
     for (const dateTask of this.tasksData.tasks) {
       const taskIndex = dateTask.tasksList.findIndex(t => t.taskId === taskId);
       if (taskIndex !== -1) {
-        // 使用 Object.assign 创建新的任务对象，避免引用问题
-        dateTask.tasksList[taskIndex] = Object.assign({}, updatedTask);
+        // 使用深拷贝创建新的任务对象，避免引用问题
+        dateTask.tasksList[taskIndex] = JSON.parse(JSON.stringify(updatedTask));
         await this.saveTasks();
         return;
       }

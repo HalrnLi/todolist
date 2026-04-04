@@ -43,7 +43,7 @@
   margin-bottom: 0.5rem;
 }
 
-.todo-input-row:has(input[type="date"]) {
+.todo-input-row-with-date {
   cursor: pointer;
 }
 
@@ -495,7 +495,7 @@
   margin-bottom: 1rem;
 }
 
-.edit-row:has(input[type="date"]) {
+.edit-row-with-date {
   cursor: pointer;
 }
 

@@ -10,6 +10,7 @@ class EditModal extends Modal {
     this.task = task;
     this.card = card;
     this.errorHandler = errorHandler;
+    this.abortController = new AbortController();
   }
 
   onOpen() {
@@ -37,7 +38,7 @@ class EditModal extends Modal {
     });
     
     // 截止日期
-    const dateRow = contentEl.createEl('div', { cls: 'edit-row' });
+    const dateRow = contentEl.createEl('div', { cls: 'edit-row edit-row-with-date' });
     dateRow.style.cursor = 'pointer';
     dateRow.createEl('label', { text: '截止日期：' });
     const dateInput = dateRow.createEl('input', {
@@ -54,7 +55,7 @@ class EditModal extends Modal {
           dateInput.click();
         }, 0);
       }
-    });
+    }, { signal: this.abortController.signal });
 
     // 优先级
     const priorityRow = contentEl.createEl('div', { cls: 'edit-row' });
@@ -105,6 +106,7 @@ class EditModal extends Modal {
   }
 
   onClose() {
+    this.abortController.abort();
     const { contentEl } = this;
     contentEl.empty();
   }

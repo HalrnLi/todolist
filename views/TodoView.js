@@ -126,7 +126,7 @@ class TodoView extends ItemView {
     });
     
     // 截止日期输入（可选）
-    const dateRow = inputSection.createEl('div', { cls: 'todo-input-row' });
+    const dateRow = inputSection.createEl('div', { cls: 'todo-input-row todo-input-row-with-date' });
     dateRow.style.cursor = 'pointer';
     dateRow.createEl('label', { text: '截止日期（可选）：', cls: 'todo-input-label' });
     this.taskDueDate = dateRow.createEl('input', {
@@ -763,8 +763,8 @@ class TodoView extends ItemView {
       cls: 'todo-delete-button'
     });
 
-    deleteBtn.addEventListener('click', () => {
-      this.plugin.deleteTask(task.taskId);
+    deleteBtn.addEventListener('click', async () => {
+      await this.plugin.deleteTask(task.taskId);
       card.remove();
     }, { signal: this.signal });
 
@@ -781,6 +781,7 @@ class TodoView extends ItemView {
       if (task) {
         newOrder.push(task);
       }
+      // 任务找不到时不添加 undefined，保持数据干净
     });
     await this.plugin.updateTasksOrder(taskDate, newOrder);
   }
