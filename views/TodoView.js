@@ -762,6 +762,13 @@ class TodoView extends ItemView {
       text: '×',
       cls: 'todo-delete-button'
     });
+
+    deleteBtn.addEventListener('click', () => {
+      this.plugin.deleteTask(task.taskId);
+      card.remove();
+    }, { signal: this.signal });
+
+    return card;
   }
   
   async saveTasksOrder(container, taskDate) {
@@ -769,9 +776,6 @@ class TodoView extends ItemView {
     const newOrder = [];
     cards.forEach(card => {
       const taskId = card.dataset.taskId;
-      const cardDate = card.dataset.date;
-      // 安全检查：只保存属于当前日期组的任务，防止跨日期移动
-      if (cardDate !== taskDate) return;
       
       const task = this.plugin.findTaskById(taskId);
       if (task) {
