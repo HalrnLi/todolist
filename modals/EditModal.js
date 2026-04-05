@@ -1,4 +1,4 @@
-const { Modal } = require('obsidian');
+const { Modal, Notice } = require('obsidian');
 const SecurityService = require('../services/SecurityService');
 const ErrorHandler = require('../services/ErrorHandler');
 
@@ -72,8 +72,9 @@ class EditModal extends Modal {
 
     buttonRow.createEl('button', { text: '保存', cls: 'edit-confirm-btn' }).addEventListener('click', async () => {
       const newContent = contentInput.value.trim();
+      // 先 trim 再验证，避免空格内容通过验证
       if (!newContent) {
-        alert('任务内容不能为空');
+        new Notice('任务内容不能为空', 3000);
         return;
       }
 
@@ -82,7 +83,7 @@ class EditModal extends Modal {
         const validatedContent = SecurityService.validateTaskContent(newContent);
         const safeLink = SecurityService.sanitizeLink(linkInput.value.trim());
 
-        // 更新任务数据
+        // 更新任务数据（使用验证后的内容，包含 trim）
         this.task.content = validatedContent;
         this.task.link = safeLink || null;
         this.task.dueDate = dateInput.value || null;

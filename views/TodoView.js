@@ -1,4 +1,4 @@
-const { ItemView } = require('obsidian');
+const { ItemView, Notice } = require('obsidian');
 const { generateUUID, PRIORITY, getPriorityConfig, parseTags, removeTags, isUrgentTask } = require('../models');
 const { formatDate, formatDateTime, getWeekStartDate, getWeekEndDate } = require('../utils/date');
 const SecurityService = require('../services/SecurityService');
@@ -14,8 +14,9 @@ class TodoView extends ItemView {
     // 用于清理事件监听器的 AbortController
     this.abortController = new AbortController();
     this.signal = this.abortController.signal;
-    // 搜索防抖定时器（作为实例属性）
+    // 防抖定时器（搜索和筛选器共用）
     this.searchDebounceTimer = null;
+    this.filterDebounceTimer = null;
   }
 
   getViewType() {
@@ -52,7 +53,10 @@ class TodoView extends ItemView {
     this.filterSelect.add(new Option('近30天', '30days'));
     this.filterSelect.add(new Option('本周', 'week'));
     this.filterSelect.add(new Option('全部日期', 'all'));
-    this.filterSelect.addEventListener('change', () => this.renderTasks(), { signal: this.signal });
+    this.filterSelect.addEventListener('change', () => {
+      clearTimeout(this.filterDebounceTimer);
+      this.filterDebounceTimer = setTimeout(() => this.renderTasks(), 100);
+    }, { signal: this.signal });
 
     // 优先级筛选
     filterSection.createEl('label', { text: '优先级：', cls: 'todo-filter-label' });
@@ -62,7 +66,10 @@ class TodoView extends ItemView {
     this.priorityFilterSelect.add(new Option('中', 'medium'));
     this.priorityFilterSelect.add(new Option('低', 'low'));
     this.priorityFilterSelect.add(new Option('无', 'none'));
-    this.priorityFilterSelect.addEventListener('change', () => this.renderTasks(), { signal: this.signal });
+    this.priorityFilterSelect.addEventListener('change', () => {
+      clearTimeout(this.filterDebounceTimer);
+      this.filterDebounceTimer = setTimeout(() => this.renderTasks(), 100);
+    }, { signal: this.signal });
 
     // 搜索框（带防抖）
     this.searchInput = filterSection.createEl('input', {
@@ -214,18 +221,26 @@ class TodoView extends ItemView {
 
   // 处理任务完成状态变化
   async handleTaskComplete(taskId, completed) {
-    const task = this.plugin.findTaskById(taskId);
-    if (task) {
-      task.completed = completed;
-      await this.plugin.updateTask(taskId, task);
-      this.renderTasks();
+    try {
+      const task = this.plugin.findTaskById(taskId);
+      if (task) {
+        task.completed = completed;
+        await this.plugin.updateTask(taskId, task);
+        this.renderTasks();
+      }
+    } catch (error) {
+      this.errorHandler.handle(error, '完成任务');
     }
   }
 
   // 处理任务删除
   async handleTaskDelete(taskId) {
-    await this.plugin.deleteTask(taskId);
-    this.renderTasks();
+    try {
+      await this.plugin.deleteTask(taskId);
+      this.renderTasks();
+    } catch (error) {
+      this.errorHandler.handle(error, '删除任务');
+    }
   }
 
   async onClose() {
@@ -236,6 +251,11 @@ class TodoView extends ItemView {
     if (this.searchDebounceTimer) {
       clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = null;
+    }
+    // 清理筛选器防抖定时器
+    if (this.filterDebounceTimer) {
+      clearTimeout(this.filterDebounceTimer);
+      this.filterDebounceTimer = null;
     }
   }
 
@@ -257,6 +277,9 @@ class TodoView extends ItemView {
     // 安全处理链接
     const safeLink = SecurityService.sanitizeLink(link);
 
+    // 收集验证错误，只报告第一个失败的
+    let firstError = null;
+
     for (const taskContent of tasks) {
       try {
         // 验证和消毒任务内容
@@ -274,9 +297,16 @@ class TodoView extends ItemView {
 
         await this.plugin.addTask(dateStr, newTask);
       } catch (error) {
-        this.errorHandler.handle(error, '添加任务');
-        return; // 如果有验证失败，停止添加所有任务
+        if (!firstError) {
+          firstError = error; // 只保存第一个错误
+        }
       }
+    }
+
+    // 如果有任何验证失败，报告第一个错误
+    if (firstError) {
+      this.errorHandler.handle(firstError, '添加任务');
+      return;
     }
 
     this.taskInput.value = '';
@@ -320,52 +350,46 @@ class TodoView extends ItemView {
       });
     }
 
-    // 搜索过滤
+    // 搜索过滤关键词（提前提取，避免重复计算）
     const searchKeyword = this.searchInput.value.trim().toLowerCase();
-    if (searchKeyword) {
-      filteredTasks = filteredTasks.map(dateTask => {
-        const filteredTasksList = dateTask.tasksList.filter(task => {
-          const contentMatch = task.content.toLowerCase().includes(searchKeyword);
-          const linkMatch = task.link && task.link.toLowerCase().includes(searchKeyword);
-          const dueDateMatch = task.dueDate && task.dueDate.includes(searchKeyword);
-          return contentMatch || linkMatch || dueDateMatch;
-        });
-        return {
-          ...dateTask,
-          tasksList: filteredTasksList
-        };
-      }).filter(dateTask => dateTask.tasksList.length > 0);
-    }
 
-    // 标签筛选
-    if (this.currentTagFilter) {
-      filteredTasks = filteredTasks.map(dateTask => {
-        const filteredTasksList = dateTask.tasksList.filter(task => {
-          const tags = parseTags(task.content);
-          return tags.includes(this.currentTagFilter);
-        });
-        return {
-          ...dateTask,
-          tasksList: filteredTasksList
-        };
-      }).filter(dateTask => dateTask.tasksList.length > 0);
-    }
-
-    // 优先级筛选
+    // 优先级筛选值
     const priorityFilter = this.priorityFilterSelect?.value;
-    if (priorityFilter && priorityFilter !== 'all') {
-      filteredTasks = filteredTasks.map(dateTask => {
-        const filteredTasksList = dateTask.tasksList.filter(task => {
-          if (priorityFilter === 'none') {
-            return !task.priority;
-          }
-          return task.priority === priorityFilter;
-        });
-        return {
-          ...dateTask,
-          tasksList: filteredTasksList
-        };
-      }).filter(dateTask => dateTask.tasksList.length > 0);
+
+    // 标签筛选（提前提取）
+    const tagFilter = this.currentTagFilter;
+
+    // 合并多个过滤条件到单次遍历（优化性能）
+    if (searchKeyword || tagFilter || (priorityFilter && priorityFilter !== 'all')) {
+      filteredTasks = filteredTasks
+        .map(dateTask => {
+          // 应用所有任务过滤条件
+          const filteredTasksList = dateTask.tasksList.filter(task => {
+            // 搜索过滤
+            if (searchKeyword) {
+              const contentMatch = task.content.toLowerCase().includes(searchKeyword);
+              const linkMatch = task.link && task.link.toLowerCase().includes(searchKeyword);
+              const dueDateMatch = task.dueDate && task.dueDate.includes(searchKeyword);
+              if (!contentMatch && !linkMatch && !dueDateMatch) return false;
+            }
+            // 标签过滤
+            if (tagFilter) {
+              const tags = parseTags(task.content);
+              if (!tags.includes(tagFilter)) return false;
+            }
+            // 优先级过滤
+            if (priorityFilter && priorityFilter !== 'all') {
+              if (priorityFilter === 'none') {
+                if (task.priority) return false;
+              } else if (task.priority !== priorityFilter) {
+                return false;
+              }
+            }
+            return true;
+          });
+          return { ...dateTask, tasksList: filteredTasksList };
+        })
+        .filter(dateTask => dateTask.tasksList.length > 0);
     }
 
     // 按日期倒序排序（今天在上面，历史在下面）
@@ -422,8 +446,12 @@ class TodoView extends ItemView {
         clearBtn.className = 'todo-clear-date-button';
         clearBtn.addEventListener('click', async () => {
           if (confirm(`确定要清空 ${dateTask.date} 的所有任务吗？`)) {
-            await this.plugin.deleteTasksByDate(dateTask.date);
-            this.renderTasks();
+            try {
+              await this.plugin.deleteTasksByDate(dateTask.date);
+              this.renderTasks();
+            } catch (error) {
+              this.errorHandler.handle(error, '清空任务');
+            }
           }
         }, { signal: this.signal });
         dateHeader.appendChild(clearBtn);
@@ -482,32 +510,6 @@ class TodoView extends ItemView {
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
-  }
-
-  // 更新状态筛选
-  updateStatusFilter(button, container, status) {
-    // 更新按钮状态
-    container.querySelectorAll('.todo-status-button').forEach(btn => {
-      btn.classList.remove('todo-status-active');
-    });
-    button.classList.add('todo-status-active');
-    
-    // 筛选任务（从 DOM 元素的 dataset 中获取状态）
-    const tasksList = container.querySelector('.todo-tasks-list');
-    const taskCards = tasksList.querySelectorAll('.todo-card');
-    
-    taskCards.forEach(card => {
-      const isCompleted = card.dataset.completed === 'true';
-      if (status === 'all') {
-        card.style.display = 'flex';
-      } else if (status === 'incomplete' && !isCompleted) {
-        card.style.display = 'flex';
-      } else if (status === 'completed' && isCompleted) {
-        card.style.display = 'flex';
-      } else {
-        card.style.display = 'none';
-      }
-    });
   }
 
   // 设置标签筛选
@@ -590,7 +592,18 @@ class TodoView extends ItemView {
   async exportTasksToCSV(startDate, endDate) {
     const start = new Date(startDate);
     const end = new Date(endDate);
-    
+
+    // CSV 单元格转义（防止 CSV 注入：公式注入攻击）
+    const escapeCSV = (cell) => {
+      if (cell === null || cell === undefined) return '';
+      const str = String(cell);
+      // 如果包含逗号、换行、双引号或以 =/+/-/@ 开头，需要包裹在双引号中
+      if (str.includes(',') || str.includes('\n') || str.includes('"') || /^[=+\-@\t]/.test(str)) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
     // 过滤日期范围内的任务
     const filteredTasks = [];
     for (const dateTask of this.plugin.tasksData.tasks) {
@@ -608,30 +621,30 @@ class TodoView extends ItemView {
         }
       }
     }
-    
+
     if (filteredTasks.length === 0) {
-      alert('所选日期范围内没有任务');
+      new Notice('所选日期范围内没有任务', 3000);
       return;
     }
-    
+
     // 生成CSV内容
     const headers = ['日期', '任务内容', '状态', '截止日期', '链接', '创建时间'];
     const csvRows = [headers.join(',')];
-    
+
     for (const task of filteredTasks) {
       const row = [
-        task.date,
-        `"${task.content.replace(/"/g, '""')}"`,
+        escapeCSV(task.date),
+        escapeCSV(task.content),
         task.completed,
-        task.dueDate,
-        task.link,
-        task.createAt
+        escapeCSV(task.dueDate),
+        escapeCSV(task.link),
+        escapeCSV(task.createAt)
       ];
       csvRows.push(row.join(','));
     }
-    
+
     const csvContent = '\uFEFF' + csvRows.join('\n'); // 添加BOM以支持中文
-    
+
     // 创建下载链接
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -764,26 +777,34 @@ class TodoView extends ItemView {
     });
 
     deleteBtn.addEventListener('click', async () => {
-      await this.plugin.deleteTask(task.taskId);
-      card.remove();
+      try {
+        await this.plugin.deleteTask(task.taskId);
+        card.remove();
+      } catch (error) {
+        this.errorHandler.handle(error, '删除任务');
+      }
     }, { signal: this.signal });
 
     return card;
   }
   
   async saveTasksOrder(container, taskDate) {
-    const cards = container.querySelectorAll('.todo-card');
-    const newOrder = [];
-    cards.forEach(card => {
-      const taskId = card.dataset.taskId;
-      
-      const task = this.plugin.findTaskById(taskId);
-      if (task) {
-        newOrder.push(task);
-      }
-      // 任务找不到时不添加 undefined，保持数据干净
-    });
-    await this.plugin.updateTasksOrder(taskDate, newOrder);
+    try {
+      const cards = container.querySelectorAll('.todo-card');
+      const newOrder = [];
+      cards.forEach(card => {
+        const taskId = card.dataset.taskId;
+
+        const task = this.plugin.findTaskById(taskId);
+        if (task) {
+          newOrder.push(task);
+        }
+        // 任务找不到时不添加 undefined，保持数据干净
+      });
+      await this.plugin.updateTasksOrder(taskDate, newOrder);
+    } catch (error) {
+      this.errorHandler.handle(error, '保存任务顺序');
+    }
   }
 }
 

@@ -3,6 +3,7 @@ const path = require('path');
 const { formatDate, formatDateTime } = require('./utils/date');
 const TimerManager = require('./services/TimerManager');
 const ErrorHandler = require('./services/ErrorHandler');
+const SecurityService = require('./services/SecurityService');
 const TodoView = require('./views/TodoView');
 
 class TodoKanbanPlugin extends Plugin {
@@ -286,9 +287,12 @@ class TodoKanbanPlugin extends Plugin {
 
   // 添加任务
   async addTask(date, task) {
+    // 验证任务内容
+    SecurityService.validateTaskContent(task.content);
+
     // 查找该日期的任务组
     let dateTask = this.tasksData.tasks.find(t => t.date === date);
-    
+
     // 如果不存在，创建新的日期任务组
     if (!dateTask) {
       dateTask = {
@@ -298,10 +302,10 @@ class TodoKanbanPlugin extends Plugin {
       };
       this.tasksData.tasks.push(dateTask);
     }
-    
+
     // 添加任务
     dateTask.tasksList.push(task);
-    
+
     // 保存数据
     await this.saveTasks();
   }
@@ -332,7 +336,16 @@ class TodoKanbanPlugin extends Plugin {
     const taskIndex = dateTask.tasksList.findIndex(t => t.taskId === taskId);
     if (taskIndex === -1) return;
 
-    dateTask.tasksList[taskIndex] = JSON.parse(JSON.stringify(updatedTask));
+    // 防御性复制：只复制自有属性，避免原型污染
+    dateTask.tasksList[taskIndex] = {
+      taskId: updatedTask.taskId,
+      content: updatedTask.content,
+      completed: updatedTask.completed,
+      createAt: updatedTask.createAt,
+      link: updatedTask.link,
+      dueDate: updatedTask.dueDate,
+      priority: updatedTask.priority
+    };
     await this.saveTasks();
   }
 
@@ -370,56 +383,51 @@ class TodoKanbanPlugin extends Plugin {
     }
   }
 
-  // 移动任务到今天
+  // 移动任务到今天（使用索引优化查找）
   async moveTaskToToday(taskId) {
     const today = new Date();
     const todayStr = formatDate(today);
     const timeStr = formatDateTime(today);
-    
-    // 查找任务
-    let taskToMove;
-    let sourceDateTask;
-    
-    for (const dateTask of this.tasksData.tasks) {
-      const taskIndex = dateTask.tasksList.findIndex(t => t.taskId === taskId);
-      if (taskIndex !== -1) {
-        taskToMove = dateTask.tasksList[taskIndex];
-        sourceDateTask = dateTask;
-        // 从原日期中移除任务
-        dateTask.tasksList.splice(taskIndex, 1);
-        
-        // 如果该日期没有任务了，删除日期任务组
-        if (dateTask.tasksList.length === 0) {
-          const dateTaskIndex = this.tasksData.tasks.findIndex(t => t.date === dateTask.date);
-          if (dateTaskIndex !== -1) {
-            this.tasksData.tasks.splice(dateTaskIndex, 1);
-          }
-        }
-        break;
+
+    // 使用索引快速查找任务
+    const indexed = this.taskIdIndex.get(taskId);
+    if (!indexed) return;
+
+    const { date: sourceDate } = indexed;
+    const sourceDateTask = this.dateIndex.get(sourceDate);
+    if (!sourceDateTask) return;
+
+    const taskIndex = sourceDateTask.tasksList.findIndex(t => t.taskId === taskId);
+    if (taskIndex === -1) return;
+
+    const [taskToMove] = sourceDateTask.tasksList.splice(taskIndex, 1);
+
+    // 如果该日期没有任务了，删除日期任务组
+    if (sourceDateTask.tasksList.length === 0) {
+      const dateTaskIndex = this.tasksData.tasks.findIndex(t => t.date === sourceDateTask.date);
+      if (dateTaskIndex !== -1) {
+        this.tasksData.tasks.splice(dateTaskIndex, 1);
       }
     }
-    
-    // 如果找到任务，添加到今天
-    if (taskToMove) {
-      // 查找今天的任务组
-      let todayTask = this.tasksData.tasks.find(t => t.date === todayStr);
-      
-      // 如果不存在，创建新的日期任务组
-      if (!todayTask) {
-        todayTask = {
-          date: todayStr,
-          createTime: timeStr,
-          tasksList: []
-        };
-        this.tasksData.tasks.push(todayTask);
-      }
-      
-      // 添加任务到今天（保留原始创建时间）
-      todayTask.tasksList.push(taskToMove);
-      
-      // 保存数据
-      await this.saveTasks();
+
+    // 查找今天的任务组
+    let todayTask = this.tasksData.tasks.find(t => t.date === todayStr);
+
+    // 如果不存在，创建新的日期任务组
+    if (!todayTask) {
+      todayTask = {
+        date: todayStr,
+        createTime: timeStr,
+        tasksList: []
+      };
+      this.tasksData.tasks.push(todayTask);
     }
+
+    // 添加任务到今天（保留原始创建时间）
+    todayTask.tasksList.push(taskToMove);
+
+    // 保存数据前重建索引，确保目标日期任务组在索引中
+    await this.saveTasks();
   }
 }
 

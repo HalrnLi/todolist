@@ -18,18 +18,24 @@ function formatDateTime(date) {
 
 // 获取某周的开始日期（周一）
 function getWeekStartDate(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) {
+    return new Date(); // 无效日期返回今天
+  }
   const d = new Date(date);
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(d.setDate(diff));
+  return new Date(d.getFullYear(), d.getMonth(), diff);
 }
 
 // 获取某周的结束日期（周日）
 function getWeekEndDate(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) {
+    return new Date(); // 无效日期返回今天
+  }
   const d = new Date(date);
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? 0 : 7);
-  return new Date(d.setDate(diff));
+  return new Date(d.getFullYear(), d.getMonth(), diff);
 }
 
 // 格式化周为 YYYY-MM-DD ~ YYYY-MM-DD

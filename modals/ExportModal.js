@@ -1,4 +1,4 @@
-const { Modal } = require('obsidian');
+const { Modal, Notice } = require('obsidian');
 const { formatDate } = require('../utils/date');
 
 // 导出对话框
@@ -34,15 +34,15 @@ class ExportModal extends Modal {
     
     buttonRow.createEl('button', { text: '导出', cls: 'export-confirm-btn' }).addEventListener('click', () => {
       if (!startInput.value || !endInput.value) {
-        alert('请选择日期范围');
+        new Notice('请选择日期范围', 3000);
         return;
       }
-      
+
       if (new Date(startInput.value) > new Date(endInput.value)) {
-        alert('开始日期不能大于结束日期');
+        new Notice('开始日期不能大于结束日期', 3000);
         return;
       }
-      
+
       this.view.exportTasksToCSV(startInput.value, endInput.value);
       this.close();
     });
