@@ -6,32 +6,33 @@ class ExportModal extends Modal {
   constructor(app, view) {
     super(app);
     this.view = view;
+    this.abortController = new AbortController();
   }
 
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    
+
     contentEl.createEl('h2', { text: '导出待办任务' });
-    
+
     // 开始日期
     const startRow = contentEl.createEl('div', { cls: 'export-row' });
     startRow.createEl('label', { text: '开始日期：' });
     const startInput = startRow.createEl('input', { type: 'date', cls: 'export-date-input' });
-    
+
     // 结束日期
     const endRow = contentEl.createEl('div', { cls: 'export-row' });
     endRow.createEl('label', { text: '结束日期：' });
     const endInput = endRow.createEl('input', { type: 'date', cls: 'export-date-input' });
-    
+
     // 设置默认值为今天
     const today = formatDate(new Date());
     startInput.value = today;
     endInput.value = today;
-    
+
     // 按钮区域
     const buttonRow = contentEl.createEl('div', { cls: 'export-buttons' });
-    
+
     buttonRow.createEl('button', { text: '导出', cls: 'export-confirm-btn' }).addEventListener('click', () => {
       if (!startInput.value || !endInput.value) {
         new Notice('请选择日期范围', 3000);
@@ -45,14 +46,15 @@ class ExportModal extends Modal {
 
       this.view.exportTasksToCSV(startInput.value, endInput.value);
       this.close();
-    });
-    
+    }, { signal: this.abortController.signal });
+
     buttonRow.createEl('button', { text: '取消', cls: 'export-cancel-btn' }).addEventListener('click', () => {
       this.close();
-    });
+    }, { signal: this.abortController.signal });
   }
 
   onClose() {
+    this.abortController.abort();
     const { contentEl } = this;
     contentEl.empty();
   }

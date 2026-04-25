@@ -8,11 +8,9 @@ class TimerManager {
     const timer = setTimeout(() => {
       // 无论成功还是异常，都要清理
       this.timers.delete(timer);
-      try {
-        callback();
-      } catch (error) {
+      Promise.resolve().then(callback).catch(error => {
         console.error('[TimerManager] Timer callback error:', error);
-      }
+      });
     }, delay);
     this.timers.set(timer, callback);
     return timer;

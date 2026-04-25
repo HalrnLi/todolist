@@ -99,11 +99,11 @@ class EditModal extends Modal {
       } catch (error) {
         this.errorHandler.handle(error, '编辑任务');
       }
-    });
-    
+    }, { signal: this.abortController.signal });
+
     buttonRow.createEl('button', { text: '取消', cls: 'edit-cancel-btn' }).addEventListener('click', () => {
       this.close();
-    });
+    }, { signal: this.abortController.signal });
   }
 
   onClose() {

@@ -12,19 +12,19 @@ class TodoKanbanPlugin extends Plugin {
     this.tasksData = { version: '1.2.0', tasks: [], lastModified: new Date().toISOString() };
     this.taskIdIndex = new Map(); // taskId -> { date, task }
     this.dateIndex = new Map();   // date -> dateTask
-    this.timerManager = new TimerManager(); // 定时器管理器
-    // 创建 ErrorHandler 实例，传入 Notice 类
+    this.timerManager = new TimerManager();
     this.errorHandler = new ErrorHandler(require('obsidian').Notice);
   }
 
-  // 构建索引
   buildIndexes() {
     this.taskIdIndex.clear();
     this.dateIndex.clear();
 
-    for (const dateTask of this.tasksData.tasks) {
+    for (const dateTask of this.tasksData.tasks || []) {
+      if (!dateTask || !Array.isArray(dateTask.tasksList) || !dateTask.date) continue;
       this.dateIndex.set(dateTask.date, dateTask);
       for (const task of dateTask.tasksList) {
+        if (!task || !task.taskId) continue;
         this.taskIdIndex.set(task.taskId, { date: dateTask.date, task });
       }
     }
@@ -36,9 +36,7 @@ class TodoKanbanPlugin extends Plugin {
     return indexed ? indexed.task : null;
   }
 
-  // 数据迁移函数
   migrateData(oldData) {
-    // 检查是否有旧版本数据
     if (!oldData.version) {
       // 从旧版本迁移
       return {
@@ -66,20 +64,13 @@ class TodoKanbanPlugin extends Plugin {
   }
 
   async onload() {
-    console.log('Loading Todo Kanban plugin...');
-    
-    // 使用 Obsidian Vault API 存储数据（路径相对于 vault 根目录）
     this.tasksFilePath = path.join(this.manifest.dir, 'tasks.json');
     
-    console.log('Tasks file path:', this.tasksFilePath);
-    
-    // 加载任务数据
     await this.loadTasks();
     
     // 自动继承历史未完成任务到今天
     await this.inheritIncompleteTasks();
     
-    // 设置凌晨1点的定时任务
     this.setupDailyInheritTimer();
     
     // 注册视图（使用唯一标识符避免冲突）
@@ -92,13 +83,10 @@ class TodoKanbanPlugin extends Plugin {
   }
 
   onunload() {
-    console.log('Unloading Todo Kanban plugin...');
-    // 使用定时器管理器清理所有定时器
     this.timerManager.clearAll();
     this.app.workspace.detachLeavesOfType('todo-kanban-view');
   }
 
-  // 激活视图
   async activateView(viewType) {
     let leaf;
     
@@ -121,7 +109,6 @@ class TodoKanbanPlugin extends Plugin {
     this.app.workspace.revealLeaf(leaf);
   }
 
-  // 加载任务数据
   async loadTasks() {
     try {
       const exists = await this.app.vault.adapter.exists(this.tasksFilePath);
@@ -141,22 +128,18 @@ class TodoKanbanPlugin extends Plugin {
       // 构建索引
       this.buildIndexes();
     } catch (error) {
-      console.error('Failed to load tasks:', error);
+      this.errorHandler.handle(error, '加载任务数据');
       this.tasksData = { version: '1.2.0', tasks: [], lastModified: new Date().toISOString() };
       this.buildIndexes();
     }
   }
 
-  // 保存任务数据（只在启动时备份，不每次操作都备份）
   async saveTasks() {
     try {
-      // 更新最后修改时间
       this.tasksData.lastModified = new Date().toISOString();
 
-      // 保存数据
       await this.app.vault.adapter.write(this.tasksFilePath, JSON.stringify(this.tasksData, null, 2));
 
-      // 更新索引
       this.buildIndexes();
     } catch (error) {
       this.errorHandler.handle(error, '保存任务数据');
@@ -180,90 +163,73 @@ class TodoKanbanPlugin extends Plugin {
     const today = new Date();
     const todayStr = formatDate(today);
     const timeStr = formatDateTime(today);
-    let hasChanges = false;
-    
-    // 查找或创建今天的任务组
-    let todayTask = this.tasksData.tasks.find(t => t.date === todayStr);
-    if (!todayTask) {
-      todayTask = {
-        date: todayStr,
-        createTime: timeStr,
-        tasksList: []
-      };
-      this.tasksData.tasks.push(todayTask);
-    }
-    
-    // 获取今天已存在的任务ID（用于避免重复移动）
-    const todayTaskIds = new Set(todayTask.tasksList.map(t => t.taskId));
-    
-    // 需要删除的空日期组
-    const datesToRemove = [];
-    
-    // 遍历所有历史日期的任务
+
+    const existingTodayTask = this.tasksData.tasks.find(t => t.date === todayStr);
+    const existingTodayTasks = existingTodayTask ? [...existingTodayTask.tasksList] : [];
+    const todayTaskIds = new Set(existingTodayTasks.map(t => t.taskId));
+    const movedTasks = [];
+
+    // 收集历史未完成任务（不可变操作）
+    const remainingHistory = [];
     for (const dateTask of this.tasksData.tasks) {
-      // 跳过今天
       if (dateTask.date === todayStr) continue;
-      
-      // 查找未完成的任务
+
+      const completedTasks = dateTask.tasksList.filter(task => task.completed);
       const incompleteTasks = dateTask.tasksList.filter(task => !task.completed);
-      
-      // 移动未完成任务到今天
+
       for (const task of incompleteTasks) {
-        // 检查是否已经移动过（避免重复）
         if (!todayTaskIds.has(task.taskId)) {
-          // 移动任务（更新创建时间）
-          task.createAt = timeStr;
-          todayTask.tasksList.push(task);
-          todayTaskIds.add(task.taskId);
-          hasChanges = true;
+          movedTasks.push({ ...task, createAt: timeStr });
         }
       }
-      
-      // 从历史日期中移除已移动的任务
-      dateTask.tasksList = dateTask.tasksList.filter(task => task.completed);
-      
-      // 如果该日期没有任务了，标记删除
-      if (dateTask.tasksList.length === 0) {
-        datesToRemove.push(dateTask.date);
+
+      if (completedTasks.length > 0) {
+        remainingHistory.push({ ...dateTask, tasksList: completedTasks });
       }
-    }
-    
-    // 删除空的日期组
-    for (const date of datesToRemove) {
-      const index = this.tasksData.tasks.findIndex(t => t.date === date);
-      if (index !== -1) {
-        this.tasksData.tasks.splice(index, 1);
-      }
-    }
-    
-    // 如果有变化，保存数据
-    if (hasChanges) {
-      await this.saveTasks();
-      console.log('Moved incomplete tasks to today');
     }
 
-    return hasChanges;
+    const hasChanges = movedTasks.length > 0;
+    if (!hasChanges) return false;
+
+    const newTodayTask = {
+      date: todayStr,
+      createTime: existingTodayTask ? existingTodayTask.createTime : timeStr,
+      tasksList: [...existingTodayTasks, ...movedTasks]
+    };
+
+    const newTasksData = {
+      ...this.tasksData,
+      tasks: [newTodayTask, ...remainingHistory]
+    };
+
+    // 原子更新：先保存旧数据引用，赋值后保存，失败则回滚
+    const oldTasksData = this.tasksData;
+    this.tasksData = newTasksData;
+    try {
+      await this.saveTasks();
+    } catch (error) {
+      this.tasksData = oldTasksData;
+      this.buildIndexes();
+      throw error;
+    }
+
+    return true;
   }
   
-  // 设置凌晨1点的定时任务（使用定时器管理器）
   setupDailyInheritTimer() {
     const now = new Date();
     const target = new Date(now);
     target.setHours(1, 0, 0, 0);
 
-    // 如果当前时间已经过了今天凌晨1点，设置为明天凌晨1点
     if (now >= target) {
       target.setDate(target.getDate() + 1);
     }
 
     const delay = target.getTime() - now.getTime();
 
-    console.log(`Next inherit scheduled at: ${target.toLocaleString()}`);
-
-    this.timerManager.clearAll(); // 清理之前的定时器
+    this.timerManager.clearAll();
 
     this.timerManager.setTimeout(async () => {
-      console.log('Running scheduled inherit task at 1 AM');
       const hasChanges = await this.inheritIncompleteTasks();
       // 如果有变化，通知所有视图刷新
       if (hasChanges) {
@@ -285,9 +251,7 @@ class TodoKanbanPlugin extends Plugin {
     }
   }
 
-  // 添加任务
   async addTask(date, task) {
-    // 验证任务内容
     SecurityService.validateTaskContent(task.content);
 
     // 查找该日期的任务组
@@ -315,7 +279,6 @@ class TodoKanbanPlugin extends Plugin {
     return this.tasksData.tasks.find(t => t.date === date);
   }
 
-  // 更新任务顺序
   async updateTasksOrder(date, newOrder) {
     const dateTask = this.tasksData.tasks.find(t => t.date === date);
     if (dateTask) {
@@ -324,7 +287,6 @@ class TodoKanbanPlugin extends Plugin {
     }
   }
 
-  // 更新任务（使用 taskIdIndex 索引优化查找）
   async updateTask(taskId, updatedTask) {
     const indexed = this.taskIdIndex.get(taskId);
     if (!indexed) return;
@@ -336,20 +298,36 @@ class TodoKanbanPlugin extends Plugin {
     const taskIndex = dateTask.tasksList.findIndex(t => t.taskId === taskId);
     if (taskIndex === -1) return;
 
+    // 校验任务内容
+    SecurityService.validateTaskContent(updatedTask.content);
+
+    // 消毒链接
+    const safeLink = SecurityService.sanitizeLink(updatedTask.link);
+
+    // 校验优先级
+    const validPriorities = ['high', 'medium', 'low', null, undefined];
+    if (!validPriorities.includes(updatedTask.priority)) {
+      throw new Error(`无效的优先级: ${updatedTask.priority}`);
+    }
+
+    // 校验截止日期格式
+    if (updatedTask.dueDate != null && !/^\d{4}-\d{2}-\d{2}$/.test(updatedTask.dueDate)) {
+      throw new Error(`无效的截止日期格式: ${updatedTask.dueDate}`);
+    }
+
     // 防御性复制：只复制自有属性，避免原型污染
     dateTask.tasksList[taskIndex] = {
       taskId: updatedTask.taskId,
       content: updatedTask.content,
       completed: updatedTask.completed,
       createAt: updatedTask.createAt,
-      link: updatedTask.link,
+      link: safeLink,
       dueDate: updatedTask.dueDate,
       priority: updatedTask.priority
     };
     await this.saveTasks();
   }
 
-  // 删除任务（使用 taskIdIndex 索引优化查找）
   async deleteTask(taskId) {
     const indexed = this.taskIdIndex.get(taskId);
     if (!indexed) return;
@@ -389,7 +367,6 @@ class TodoKanbanPlugin extends Plugin {
     const todayStr = formatDate(today);
     const timeStr = formatDateTime(today);
 
-    // 使用索引快速查找任务
     const indexed = this.taskIdIndex.get(taskId);
     if (!indexed) return;
 
@@ -426,7 +403,6 @@ class TodoKanbanPlugin extends Plugin {
     // 添加任务到今天（保留原始创建时间）
     todayTask.tasksList.push(taskToMove);
 
-    // 保存数据前重建索引，确保目标日期任务组在索引中
     await this.saveTasks();
   }
 }

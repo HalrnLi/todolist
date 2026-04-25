@@ -24,17 +24,13 @@ function getPriorityConfig(priorityValue) {
   return Object.values(PRIORITY).find(p => p.value === priorityValue) || PRIORITY.NONE;
 }
 
-// 缓存正则表达式（避免每次调用都创建）
-const TAG_REGEX = /#([\w\u4e00-\u9fa5\-_]+)/g;
-
 // 解析任务内容中的标签 (#tag)
 function parseTags(content) {
   if (!content || typeof content !== 'string') return [];
-  // 每次调用重置正则状态
-  TAG_REGEX.lastIndex = 0;
+  const tagRegex = /#([\w\u4e00-\u9fa5\-_]+)/g;
   const tags = [];
   let match;
-  while ((match = TAG_REGEX.exec(content)) !== null) {
+  while ((match = tagRegex.exec(content)) !== null) {
     tags.push(match[1]);
   }
   return [...new Set(tags)]; // 去重
@@ -59,7 +55,14 @@ function isUrgentTask(task, todayStr) {
   const dueDay = parseInt(task.dueDate.substring(8, 10), 10);
 
   // 验证日期数值范围有效性
-  if (dueMonth < 1 || dueMonth > 12 || dueDay < 1 || dueDay > 31) return false;
+  if (dueMonth < 1 || dueMonth > 12 || dueDay < 1) return false;
+  const daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  const isLeapYear = (dueYear % 4 === 0 && dueYear % 100 !== 0) || (dueYear % 400 === 0);
+  if (dueMonth === 2 && isLeapYear) {
+    if (dueDay > 29) return false;
+  } else if (dueDay > daysInMonth[dueMonth - 1]) {
+    return false;
+  }
 
   // 计算截止日期前一天的 yyyy-mm-dd
   let prevDay = dueDay - 1;
