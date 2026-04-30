@@ -761,8 +761,9 @@ class TodoView extends ItemView {
       });
     }
 
-    const safeContent = SecurityService.sanitizeInput(removeTags(task.content));
-    content.createEl('p', { text: safeContent, cls: 'todo-text' });
+    // 使用 textContent 直接设置文本，避免 sanitizeInput + {text:} 的双重转义问题
+    const textEl = content.createEl('p', { cls: 'todo-text' });
+    textEl.textContent = removeTags(task.content);
     
     content.addEventListener('dblclick', () => {
       this.showEditDialog(task, card);
