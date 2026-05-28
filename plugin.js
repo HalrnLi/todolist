@@ -140,6 +140,8 @@ class TodoKanbanPlugin extends Plugin {
 
       await this.app.vault.adapter.write(this.tasksFilePath, JSON.stringify(this.tasksData, null, 2));
 
+      // 每次保存后重建索引，确保 dateIndex/taskIdIndex 与实际数据一致
+      // （addTask 创建新日期组、deleteTask 删除空日期组都会直接修改 tasks 数组，需要同步索引）
       this.buildIndexes();
     } catch (error) {
       this.errorHandler.handle(error, '保存任务数据');

@@ -199,6 +199,20 @@ class TodoView extends ItemView {
     }, { signal: this.signal });
 
     this.setupEventDelegation(this.signal);
+    this.setupDragDelegation();
+
+    // 双击编辑委托（容器级别，避免重复绑定）
+    this.todoContainer.addEventListener('dblclick', (e) => {
+      const content = e.target.closest('.todo-content');
+      if (!content) return;
+      const card = content.closest('.todo-card');
+      if (!card) return;
+      const taskId = card.dataset.taskId;
+      const task = this.plugin.findTaskById(taskId);
+      if (task) {
+        this.showEditDialog(task, card);
+      }
+    }, { signal: this.signal });
 
     // 渲染任务
     this.renderTasks();
@@ -225,12 +239,139 @@ class TodoView extends ItemView {
     // 这样可以确保拖拽只能在同一日期组内进行，避免跨日期移动任务
   }
 
+  // 容器级别拖拽委托 —— 替代逐卡片绑定
+  setupDragDelegation() {
+    if (!this.todoContainer) return;
+
+    this.todoContainer.addEventListener('dragstart', (e) => {
+      const card = e.target.closest('.todo-card');
+      if (!card) return;
+      card.classList.add('todo-card-dragging');
+      this._dragState = { taskId: card.dataset.taskId, sourceContainer: card.parentElement, sourceDate: card.dataset.date };
+      e.dataTransfer.setData('text/plain', card.dataset.taskId);
+      e.dataTransfer.effectAllowed = 'move';
+    }, { signal: this.signal });
+
+    this.todoContainer.addEventListener('dragend', (e) => {
+      const card = e.target.closest('.todo-card');
+      if (card) card.classList.remove('todo-card-dragging');
+      this._dragState = null;
+    }, { signal: this.signal });
+
+    this.todoContainer.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const draggingCard = this.todoContainer.querySelector('.todo-card-dragging');
+      const targetCard = e.target.closest('.todo-card');
+      if (!draggingCard || !targetCard || draggingCard === targetCard) return;
+      if (draggingCard.parentElement !== targetCard.parentElement) return;
+
+      const rect = targetCard.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const container = targetCard.parentElement;
+      if (e.clientY < midY) {
+        container.insertBefore(draggingCard, targetCard);
+      } else {
+        container.insertBefore(draggingCard, targetCard.nextSibling);
+      }
+    }, { signal: this.signal });
+
+    this.todoContainer.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      const targetCard = e.target.closest('.todo-card');
+      if (!targetCard) return;
+      const container = targetCard.parentElement;
+      const state = this._dragState;
+      if (!state || container !== state.sourceContainer) return;
+      if (state.sourceDate) {
+        await this.saveTasksOrder(container, state.sourceDate);
+      }
+    }, { signal: this.signal });
+  }
+
+  // 更新卡片内容（不重建 DOM 节点，只更新内容）
+  updateCardContent(card, task) {
+    const todayStr = formatDate(new Date());
+    const isUrgent = isUrgentTask(task, todayStr);
+    const content = card.querySelector('.todo-content');
+    if (!content) return;
+
+    // 更新类名
+    card.className = `todo-card${task.completed ? ' todo-card-completed' : ''}${isUrgent ? ' todo-card-urgent' : ''}`;
+    card.dataset.completed = task.completed.toString();
+
+    // 更新 checkbox
+    const checkbox = card.querySelector('.todo-checkbox');
+    if (checkbox) checkbox.checked = task.completed;
+
+    // 清空并重建 content 内部
+    content.empty();
+
+    if (isUrgent) {
+      content.createEl('span', { text: '🔴 紧急', cls: 'todo-urgent-badge' });
+    }
+
+    if (task.priority) {
+      const priorityConfig = getPriorityConfig(task.priority);
+      const priorityBadge = content.createEl('span', {
+        text: priorityConfig.label,
+        cls: 'todo-priority-badge'
+      });
+      priorityBadge.style.backgroundColor = priorityConfig.color + '20';
+      priorityBadge.style.color = priorityConfig.color;
+    }
+
+    const tags = parseTags(task.content);
+    if (tags.length > 0) {
+      const tagsContainer = content.createEl('div', { cls: 'todo-tags-container' });
+      tags.forEach(tag => {
+        const tagEl = tagsContainer.createEl('span', { text: `#${tag}`, cls: 'todo-tag' });
+        tagEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.setTagFilter(tag);
+        }, { signal: this.signal });
+      });
+    }
+
+    const textEl = content.createEl('p', { cls: 'todo-text' });
+    textEl.textContent = removeTags(task.content);
+
+    // dblclick 编辑已通过容器级委托处理，不再逐卡片绑定
+
+    if (task.dueDate) {
+      content.createEl('p', { text: `截止: ${task.dueDate}`, cls: 'todo-due-date' });
+    }
+
+    if (task.link) {
+      const safeLink = SecurityService.sanitizeLink(task.link);
+      if (safeLink) {
+        content.createEl('a', {
+          text: '打开链接',
+          cls: 'todo-link',
+          href: safeLink,
+          target: '_blank',
+          rel: 'noopener noreferrer'
+        });
+      }
+    }
+  }
+
   async handleTaskComplete(taskId, completed) {
     try {
       const task = this.plugin.findTaskById(taskId);
       if (task) {
         await this.plugin.updateTask(taskId, { ...task, completed });
-        this.renderTasks();
+        // 直接更新卡片，不全量重渲染
+        const card = this.todoContainer.querySelector(`.todo-card[data-task-id="${taskId}"]`);
+        if (card) {
+          this.updateCardContent(card, { ...task, completed });
+          // 更新排序：完成的任务移到底部
+          const tasksList = card.parentElement;
+          if (tasksList) {
+            tasksList.appendChild(card);
+          }
+        }
+        this._updateTaskCountBadge();
       }
     } catch (error) {
       this.errorHandler.handle(error, '完成任务');
@@ -240,7 +381,18 @@ class TodoView extends ItemView {
   async handleTaskDelete(taskId) {
     try {
       await this.plugin.deleteTask(taskId);
-      this.renderTasks();
+      // 直接移除卡片，不全量重渲染
+      const card = this.todoContainer.querySelector(`.todo-card[data-task-id="${taskId}"]`);
+      if (card) {
+        const tasksList = card.parentElement;
+        card.remove();
+        // 如果日期组空了，移除整个日期组
+        if (tasksList && tasksList.children.length === 0) {
+          const dateSection = tasksList.closest('.todo-date-section');
+          if (dateSection) dateSection.remove();
+        }
+      }
+      this._updateTaskCountBadge();
     } catch (error) {
       this.errorHandler.handle(error, '删除任务');
     }
@@ -325,7 +477,7 @@ class TodoView extends ItemView {
     return isNaN(d.getTime()) ? null : d;
   }
 
-  // 优化后的渲染任务（使用DocumentFragment和分批渲染）
+  // 渲染任务（diff 模式：只更新变化的卡片，不全量重建 DOM）
   renderTasks() {
     const filter = this.filterSelect.value;
     const today = new Date();
@@ -412,119 +564,107 @@ class TodoView extends ItemView {
 
     this._updateTaskCountBadge();
 
-    // 使用DocumentFragment减少重排
-    const fragment = document.createDocumentFragment();
-
     if (filteredTasks.length === 0) {
+      this.todoContainer.empty();
       const emptyEl = document.createElement('p');
       emptyEl.textContent = '没有任务，添加一个吧！';
       emptyEl.className = 'todo-empty';
-      fragment.appendChild(emptyEl);
-      this.todoContainer.empty();
-      this.todoContainer.appendChild(fragment);
+      this.todoContainer.appendChild(emptyEl);
       return;
     }
 
-    // 分批渲染，避免阻塞主线程
-    this.renderTasksInBatches(filteredTasks, fragment, todayStr).then(() => {
-      this.todoContainer.empty();
-      this.todoContainer.appendChild(fragment);
+    // === Diff 渲染：收集现有卡片，按 taskId 索引 ===
+    const existingCards = new Map();
+    this.todoContainer.querySelectorAll('.todo-card').forEach(card => {
+      existingCards.set(card.dataset.taskId, card);
     });
-  }
 
-  // 分批渲染任务
-  async renderTasksInBatches(filteredTasks, fragment, todayStr) {
-    const batchSize = 20;
-    const totalBatches = Math.ceil(filteredTasks.length / batchSize);
+    // 使用 DocumentFragment 减少重排
+    const fragment = document.createDocumentFragment();
 
-    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-      const start = batchIndex * batchSize;
-      const end = Math.min(start + batchSize, filteredTasks.length);
-      const batch = filteredTasks.slice(start, end);
+    for (const dateTask of filteredTasks) {
+      const isToday = dateTask.date === todayStr;
 
-      // 渲染当前批次
-      for (const dateTask of batch) {
-        const dateSection = document.createElement('div');
-        dateSection.className = 'todo-date-section';
+      const dateSection = document.createElement('div');
+      dateSection.className = `todo-date-section${isToday ? ' todo-date-today' : ''}`;
 
-        // 日期标题
-        const dateHeader = document.createElement('div');
-        dateHeader.className = 'todo-date-header';
-        const dateTitle = document.createElement('h3');
-        dateTitle.textContent = dateTask.date === todayStr ? `${dateTask.date} (今天)` : dateTask.date;
-        dateTitle.className = 'todo-date-title';
-        dateHeader.appendChild(dateTitle);
+      // 日期标题
+      const dateHeader = document.createElement('div');
+      dateHeader.className = 'todo-date-header';
+      const dateTitle = document.createElement('h3');
+      dateTitle.textContent = isToday ? `${dateTask.date} (今天)` : dateTask.date;
+      dateTitle.className = 'todo-date-title';
+      dateHeader.appendChild(dateTitle);
 
-        // 清空按钮
-        const clearBtn = document.createElement('button');
-        clearBtn.textContent = '清空';
-        clearBtn.className = 'todo-clear-date-button';
-        clearBtn.addEventListener('click', async () => {
-          if (confirm(`确定要清空 ${dateTask.date} 的所有任务吗？`)) {
-            try {
-              await this.plugin.deleteTasksByDate(dateTask.date);
-              this.renderTasks();
-            } catch (error) {
-              this.errorHandler.handle(error, '清空任务');
-            }
+      // 清空按钮
+      const clearBtn = document.createElement('button');
+      clearBtn.textContent = '清空';
+      clearBtn.className = 'todo-clear-date-button';
+      clearBtn.addEventListener('click', async () => {
+        if (confirm(`确定要清空 ${dateTask.date} 的所有任务吗？`)) {
+          try {
+            await this.plugin.deleteTasksByDate(dateTask.date);
+            this.renderTasks();
+          } catch (error) {
+            this.errorHandler.handle(error, '清空任务');
           }
-        }, { signal: this.signal });
-        dateHeader.appendChild(clearBtn);
-        dateSection.appendChild(dateHeader);
+        }
+      }, { signal: this.signal });
+      dateHeader.appendChild(clearBtn);
+      dateSection.appendChild(dateHeader);
 
-        // 任务列表容器
-        const tasksContainer = document.createElement('div');
-        tasksContainer.className = 'todo-date-tasks';
+      // 任务列表容器
+      const tasksContainer = document.createElement('div');
+      tasksContainer.className = 'todo-date-tasks';
 
-        // 任务列表
-        const tasksList = document.createElement('div');
-        tasksList.className = 'todo-tasks-list';
+      // 任务列表
+      const tasksList = document.createElement('div');
+      tasksList.className = 'todo-tasks-list';
 
-        // 排序逻辑：未完成任务在前 > 紧急任务 > 优先级 > 截止时间 > 已完成任务在后
-        const sortedTasks = [...dateTask.tasksList].sort((a, b) => {
-          // 已完成的任务排在最后
-          if (a.completed && !b.completed) return 1;
-          if (!a.completed && b.completed) return -1;
+      // 排序逻辑：未完成任务在前 > 紧急任务 > 优先级 > 截止时间 > 已完成任务在后
+      const sortedTasks = [...dateTask.tasksList].sort((a, b) => {
+        if (a.completed && !b.completed) return 1;
+        if (!a.completed && b.completed) return -1;
 
-          const aIsUrgent = isUrgentTask(a, todayStr);
-          const bIsUrgent = isUrgentTask(b, todayStr);
+        const aIsUrgent = isUrgentTask(a, todayStr);
+        const bIsUrgent = isUrgentTask(b, todayStr);
 
-          // 紧急任务置顶
-          if (aIsUrgent && !bIsUrgent) return -1;
-          if (!aIsUrgent && bIsUrgent) return 1;
+        if (aIsUrgent && !bIsUrgent) return -1;
+        if (!aIsUrgent && bIsUrgent) return 1;
 
-          // 优先级排序（高优先级在前）
-          const aPriority = getPriorityConfig(a.priority).order;
-          const bPriority = getPriorityConfig(b.priority).order;
-          if (aPriority !== bPriority) {
-            return aPriority - bPriority;
-          }
-
-          // 如果a没有截止时间，a排在前面
-          if (!a.dueDate && b.dueDate) return -1;
-          // 如果b没有截止时间，b排在前面
-          if (a.dueDate && !b.dueDate) return 1;
-          // 如果都没有截止时间，保持原顺序
-          if (!a.dueDate && !b.dueDate) return 0;
-          // 如果都有截止时间，按时间从近到远排序
-          return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-        });
-
-        // 渲染任务卡片
-        for (const task of sortedTasks) {
-          this.createTaskCard(tasksList, task, dateTask.date);
+        const aPriority = getPriorityConfig(a.priority).order;
+        const bPriority = getPriorityConfig(b.priority).order;
+        if (aPriority !== bPriority) {
+          return aPriority - bPriority;
         }
 
-        tasksContainer.appendChild(tasksList);
-        dateSection.appendChild(tasksContainer);
-        fragment.appendChild(dateSection);
+        if (!a.dueDate && b.dueDate) return -1;
+        if (a.dueDate && !b.dueDate) return 1;
+        if (!a.dueDate && !b.dueDate) return 0;
+        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      });
+
+      // 渲染任务卡片 —— 复用已有 DOM 节点
+      for (const task of sortedTasks) {
+        let card = existingCards.get(task.taskId);
+        if (card) {
+          // 已存在 → 更新内容，不重建
+          this.updateCardContent(card, task);
+        } else {
+          // 新卡片
+          card = this.createTaskCard(tasksList, task, dateTask.date);
+        }
+        tasksList.appendChild(card);
       }
 
-      // 每批渲染后让出控制权，避免阻塞主线程
-      if (batchIndex < totalBatches - 1) {
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
+      tasksContainer.appendChild(tasksList);
+      dateSection.appendChild(tasksContainer);
+      fragment.appendChild(dateSection);
     }
+
+    // 替换容器内容（一次性操作，减少重排）
+    this.todoContainer.empty();
+    this.todoContainer.appendChild(fragment);
   }
 
   // 设置标签筛选
@@ -688,36 +828,9 @@ class TodoView extends ItemView {
     card.dataset.taskId = task.taskId;
     card.dataset.completed = task.completed.toString();
     card.dataset.date = taskDate;
-    
-    card.addEventListener('dragstart', (e) => {
-      card.classList.add('todo-card-dragging');
-      e.dataTransfer.setData('text/plain', task.taskId);
-      e.dataTransfer.effectAllowed = 'move';
-    }, { signal: this.signal });
-    
-    card.addEventListener('dragend', () => {
-      card.classList.remove('todo-card-dragging');
-    }, { signal: this.signal });
-    
-    card.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      const draggingCard = container.querySelector('.todo-card-dragging');
-      if (draggingCard && draggingCard !== card) {
-        const rect = card.getBoundingClientRect();
-        const midY = rect.top + rect.height / 2;
-        if (e.clientY < midY) {
-          container.insertBefore(draggingCard, card);
-        } else {
-          container.insertBefore(draggingCard, card.nextSibling);
-        }
-      }
-    }, { signal: this.signal });
-    
-    card.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      await this.saveTasksOrder(container, taskDate);
-    }, { signal: this.signal });
+
+    // 拖拽事件由 setupDragDelegation() 在容器级别统一处理
+    // 不在每个卡片上绑定，避免 68+ 卡片的重复监听器开销
     
     const checkbox = card.createEl('input', {
       type: 'checkbox',
@@ -765,9 +878,7 @@ class TodoView extends ItemView {
     const textEl = content.createEl('p', { cls: 'todo-text' });
     textEl.textContent = removeTags(task.content);
     
-    content.addEventListener('dblclick', () => {
-      this.showEditDialog(task, card);
-    }, { signal: this.signal });
+    // dblclick 编辑已通过容器级委托处理，不再逐卡片绑定
     
     if (task.dueDate) {
       content.createEl('p', { 
