@@ -24,6 +24,9 @@ class ReminderService {
     const fireAt = Date.now() + delayMs;
     const timerId = this.timerManager.setTimeout(() => {
       try {
+        // 已完成的任务不再弹提醒
+        const task = this.plugin.findTaskById(taskId);
+        if (task && task.completed) return;
         this._notify(taskId, content);
       } finally {
         this.reminders.delete(taskId);
