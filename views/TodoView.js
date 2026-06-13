@@ -363,6 +363,26 @@ class TodoView extends ItemView {
         });
       }
     }
+
+    // 闹钟图标
+    const actions = card.querySelector('.todo-actions');
+    if (actions) {
+      const existingIcon = actions.querySelector('.todo-reminder-icon');
+      if (this.plugin.reminderService?.hasReminder(task.taskId)) {
+        if (!existingIcon) {
+          const remaining = this.plugin.reminderService.getRemainingTime(task.taskId);
+          const mins = Math.ceil(remaining / 60000);
+          const alarmIcon = createEl('span', {
+            cls: 'todo-reminder-icon',
+            text: '⏰',
+            attr: { 'data-task-id': task.taskId, title: `${mins} 分钟后提醒` }
+          });
+          actions.insertBefore(alarmIcon, actions.firstChild);
+        }
+      } else if (existingIcon) {
+        existingIcon.remove();
+      }
+    }
   }
 
   async handleTaskComplete(taskId, completed) {
@@ -1005,7 +1025,18 @@ class TodoView extends ItemView {
     }
     
     const actions = card.createEl('div', { cls: 'todo-actions' });
-    
+
+    // 闹钟图标（仅当有提醒时）
+    if (this.plugin.reminderService?.hasReminder(task.taskId)) {
+      const remaining = this.plugin.reminderService.getRemainingTime(task.taskId);
+      const mins = Math.ceil(remaining / 60000);
+      actions.createEl('span', {
+        cls: 'todo-reminder-icon',
+        text: '⏰',
+        attr: { 'data-task-id': task.taskId, title: `${mins} 分钟后提醒` }
+      });
+    }
+
     const deleteBtn = actions.createEl('button', {
       text: '×',
       cls: 'todo-delete-button'
