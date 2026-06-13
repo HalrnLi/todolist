@@ -16,6 +16,7 @@ class TodoKanbanPlugin extends Plugin {
     this.timerManager = new TimerManager();
     this.errorHandler = new ErrorHandler(require('obsidian').Notice);
     this.reminderService = null; // onload 中初始化
+    this._dailyTimerId = null;
   }
 
   buildIndexes() {
@@ -236,9 +237,12 @@ class TodoKanbanPlugin extends Plugin {
 
     const delay = target.getTime() - now.getTime();
 
-    this.timerManager.clearAll();
+    // 只清除上一次的每日定时器，不影响提醒定时器
+    if (this._dailyTimerId != null) {
+      clearTimeout(this._dailyTimerId);
+    }
 
-    this.timerManager.setTimeout(async () => {
+    this._dailyTimerId = this.timerManager.setTimeout(async () => {
       const hasChanges = await this.inheritIncompleteTasks();
       // 如果有变化，通知所有视图刷新
       if (hasChanges) {
@@ -370,6 +374,12 @@ class TodoKanbanPlugin extends Plugin {
   async deleteTasksByDate(date) {
     const dateTaskIndex = this.tasksData.tasks.findIndex(t => t.date === date);
     if (dateTaskIndex !== -1) {
+      const dateTask = this.tasksData.tasks[dateTaskIndex];
+      if (this.reminderService) {
+        for (const task of dateTask.tasksList) {
+          this.reminderService.cancelReminder(task.taskId);
+        }
+      }
       this.tasksData.tasks.splice(dateTaskIndex, 1);
       await this.saveTasks();
     }

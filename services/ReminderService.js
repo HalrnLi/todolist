@@ -68,18 +68,21 @@ class ReminderService {
   // 触发通知
   _notify(taskId, content) {
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      const notification = new Notification('待办提醒', {
-        body: content,
-        icon: undefined
-      });
-      notification.onclick = () => {
-        window.focus();
-        notification.close();
-      };
-    } else {
-      // fallback 到 Obsidian Notice
-      new Notice(`⏰ 提醒: ${content}`, 10000);
+      try {
+        const notification = new Notification('待办提醒', {
+          body: content,
+          icon: undefined
+        });
+        notification.onclick = () => {
+          window.focus();
+          notification.close();
+        };
+        return;
+      } catch (e) {
+        // Notification 构造失败，fall through 到 Notice fallback
+      }
     }
+    new Notice(`⏰ 提醒: ${content}`, 10000);
   }
 
   // 通知视图刷新
