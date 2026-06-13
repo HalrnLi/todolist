@@ -1,4 +1,4 @@
-const { ItemView, Notice } = require('obsidian');
+const { ItemView, Notice, Menu, Modal } = require('obsidian');
 const { generateUUID, PRIORITY, getPriorityConfig, parseTags, removeTags, isUrgentTask } = require('../models');
 const { formatDate, formatDateTime, getWeekStartDate, getWeekEndDate } = require('../utils/date');
 const SecurityService = require('../services/SecurityService');
@@ -233,6 +233,15 @@ class TodoView extends ItemView {
       if (e.target.classList.contains('todo-delete-button')) {
         this.handleTaskDelete(card.dataset.taskId);
       }
+    }, { signal });
+
+    // 右键菜单委托
+    this.todoContainer.addEventListener('contextmenu', (e) => {
+      const card = e.target.closest('.todo-card');
+      if (!card) return;
+      e.preventDefault();
+      const taskId = card.dataset.taskId;
+      this.showReminderMenu(e, taskId);
     }, { signal });
 
     // 注：拖拽排序事件由 createTaskCard 中的事件处理程序管理
@@ -740,6 +749,101 @@ class TodoView extends ItemView {
   }
 
   // 显示导出对话框
+  // 显示提醒右键菜单
+  showReminderMenu(e, taskId) {
+    const menu = new Menu();
+    const reminderService = this.plugin.reminderService;
+    const task = this.plugin.findTaskById(taskId);
+    if (!task || !reminderService) return;
+
+    const presets = [
+      { label: '10 分钟后', ms: 10 * 60 * 1000 },
+      { label: '30 分钟后', ms: 30 * 60 * 1000 },
+      { label: '1 小时后', ms: 60 * 60 * 1000 },
+      { label: '3 小时后', ms: 3 * 60 * 60 * 1000 },
+    ];
+
+    menu.addItem(item => item.setTitle('📋 提醒我').setDisabled(true));
+
+    presets.forEach(preset => {
+      menu.addItem(item => item
+        .setTitle(preset.label)
+        .onClick(() => {
+          reminderService.setReminder(taskId, task.content, preset.ms);
+          new Notice(`已设置 ${preset.label} 提醒`, 3000);
+          this.renderTasks();
+        })
+      );
+    });
+
+    menu.addItem(item => item
+      .setTitle('自定义时间...')
+      .onClick(() => {
+        const modal = new Modal(this.app);
+        modal.titleEl.setText('设置提醒时间');
+
+        const inputEl = modal.contentEl.createEl('input', {
+          type: 'number',
+          placeholder: '请输入分钟数（1-1440）',
+          attr: { min: '1', max: '1440' }
+        });
+        inputEl.style.width = '100%';
+        inputEl.style.padding = '8px';
+        inputEl.style.marginTop = '8px';
+        inputEl.style.marginBottom = '8px';
+
+        const btnContainer = modal.contentEl.createEl('div');
+        btnContainer.style.display = 'flex';
+        btnContainer.style.gap = '8px';
+        btnContainer.style.justifyContent = 'flex-end';
+
+        const cancelBtn = btnContainer.createEl('button', { text: '取消' });
+        cancelBtn.addEventListener('click', () => modal.close());
+
+        const confirmBtn = btnContainer.createEl('button', { text: '确定' });
+        confirmBtn.style.backgroundColor = 'var(--interactive-accent)';
+        confirmBtn.style.color = 'white';
+        confirmBtn.style.border = 'none';
+        confirmBtn.style.padding = '6px 16px';
+        confirmBtn.style.borderRadius = '4px';
+        confirmBtn.addEventListener('click', () => {
+          const mins = parseInt(inputEl.value, 10);
+          if (!inputEl.value || isNaN(mins) || mins < 1 || mins > 1440) {
+            new Notice('请输入 1-1440 之间的正整数', 3000);
+            return;
+          }
+          reminderService.setReminder(taskId, task.content, mins * 60 * 1000);
+          new Notice(`已设置 ${mins} 分钟后提醒`, 3000);
+          this.renderTasks();
+          modal.close();
+        });
+
+        inputEl.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') confirmBtn.click();
+        });
+
+        modal.open();
+        inputEl.focus();
+      })
+    );
+
+    if (reminderService.hasReminder(taskId)) {
+      menu.addSeparator();
+      const remaining = reminderService.getRemainingTime(taskId);
+      const mins = Math.ceil(remaining / 60000);
+      menu.addItem(item => item
+        .setTitle(`⏰ 取消提醒 (剩余 ${mins} 分钟)`)
+        .onClick(() => {
+          reminderService.cancelReminder(taskId);
+          new Notice('已取消提醒', 3000);
+          this.renderTasks();
+        })
+      );
+    }
+
+    menu.showAtPosition({ x: e.clientX, y: e.clientY });
+  }
+
   showExportDialog() {
     const modal = new ExportModal(this.app, this);
     modal.open();
