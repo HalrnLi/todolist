@@ -748,7 +748,6 @@ class TodoView extends ItemView {
     }
   }
 
-  // 显示导出对话框
   // 显示提醒右键菜单
   showReminderMenu(e, taskId) {
     const menu = new Menu();
@@ -844,6 +843,7 @@ class TodoView extends ItemView {
     menu.showAtPosition({ x: e.clientX, y: e.clientY });
   }
 
+  // 显示导出对话框
   showExportDialog() {
     const modal = new ExportModal(this.app, this);
     modal.open();
