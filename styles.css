@@ -318,6 +318,17 @@
   align-items: flex-end;
 }
 
+.todo-reminder-icon {
+  cursor: default;
+  font-size: 12px;
+  opacity: 0.7;
+  margin-right: 4px;
+}
+
+.todo-reminder-icon:hover {
+  opacity: 1;
+}
+
 .todo-move-button {
   padding: 0.2rem 0.5rem;
   border: 1px solid var(--background-modifier-border);
