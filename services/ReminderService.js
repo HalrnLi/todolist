@@ -1,9 +1,9 @@
 const { Notice } = require('obsidian');
 
 class ReminderService {
-  constructor(timerManager, app) {
+  constructor(timerManager, plugin) {
     this.timerManager = timerManager;
-    this.app = app;
+    this.plugin = plugin;
     this.reminders = new Map(); // taskId -> { timerId, fireAt, content }
     this._requestPermission();
   }
@@ -23,10 +23,12 @@ class ReminderService {
 
     const fireAt = Date.now() + delayMs;
     const timerId = this.timerManager.setTimeout(() => {
-      this._notify(taskId, content);
-      this.reminders.delete(taskId);
-      // 通知视图刷新闹钟图标
-      this._notifyViewsToRefresh();
+      try {
+        this._notify(taskId, content);
+      } finally {
+        this.reminders.delete(taskId);
+        this._notifyViewsToRefresh();
+      }
     }, delayMs);
 
     this.reminders.set(taskId, { timerId, fireAt, content });
@@ -82,13 +84,7 @@ class ReminderService {
 
   // 通知视图刷新
   _notifyViewsToRefresh() {
-    const leaves = this.app.workspace.getLeavesOfType('todo-kanban-view');
-    for (const leaf of leaves) {
-      const view = leaf.view;
-      if (view && view.renderTasks) {
-        view.renderTasks();
-      }
-    }
+    this.plugin.notifyViewsToRefresh();
   }
 }
 

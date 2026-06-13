@@ -4,6 +4,7 @@ const { formatDate, formatDateTime } = require('./utils/date');
 const TimerManager = require('./services/TimerManager');
 const ErrorHandler = require('./services/ErrorHandler');
 const SecurityService = require('./services/SecurityService');
+const ReminderService = require('./services/ReminderService');
 const TodoView = require('./views/TodoView');
 
 class TodoKanbanPlugin extends Plugin {
@@ -14,6 +15,7 @@ class TodoKanbanPlugin extends Plugin {
     this.dateIndex = new Map();   // date -> dateTask
     this.timerManager = new TimerManager();
     this.errorHandler = new ErrorHandler(require('obsidian').Notice);
+    this.reminderService = null; // onload 中初始化
   }
 
   buildIndexes() {
@@ -67,7 +69,9 @@ class TodoKanbanPlugin extends Plugin {
     this.tasksFilePath = path.join(this.manifest.dir, 'tasks.json');
     
     await this.loadTasks();
-    
+
+    this.reminderService = new ReminderService(this.timerManager, this);
+
     // 自动继承历史未完成任务到今天
     await this.inheritIncompleteTasks();
     
@@ -84,6 +88,9 @@ class TodoKanbanPlugin extends Plugin {
 
   onunload() {
     this.timerManager.clearAll();
+    if (this.reminderService) {
+      this.reminderService.clearAll();
+    }
     this.app.workspace.detachLeavesOfType('todo-kanban-view');
   }
 
@@ -342,6 +349,11 @@ class TodoKanbanPlugin extends Plugin {
     if (taskIndex === -1) return;
 
     dateTask.tasksList.splice(taskIndex, 1);
+
+    // 取消该任务的提醒
+    if (this.reminderService) {
+      this.reminderService.cancelReminder(taskId);
+    }
 
     // 如果该日期没有任务了，删除日期任务组
     if (dateTask.tasksList.length === 0) {
