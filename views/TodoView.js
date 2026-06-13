@@ -650,10 +650,16 @@ class TodoView extends ItemView {
       const tasksList = document.createElement('div');
       tasksList.className = 'todo-tasks-list';
 
-      // 排序逻辑：未完成任务在前 > 紧急任务 > 优先级 > 截止时间 > 已完成任务在后
+      // 排序逻辑：未完成任务在前 > 提醒置顶 > 紧急任务 > 优先级 > 截止时间 > 已完成任务在后
+      const reminderService = this.plugin.reminderService;
       const sortedTasks = [...dateTask.tasksList].sort((a, b) => {
         if (a.completed && !b.completed) return 1;
         if (!a.completed && b.completed) return -1;
+
+        const aHasReminder = reminderService?.hasReminder(a.taskId);
+        const bHasReminder = reminderService?.hasReminder(b.taskId);
+        if (aHasReminder && !bHasReminder) return -1;
+        if (!aHasReminder && bHasReminder) return 1;
 
         const aIsUrgent = isUrgentTask(a, todayStr);
         const bIsUrgent = isUrgentTask(b, todayStr);
