@@ -794,7 +794,7 @@ class TodoView extends ItemView {
       menu.addItem(item => item
         .setTitle(preset.label)
         .onClick(() => {
-          reminderService.setReminder(taskId, task.content, preset.ms);
+          reminderService.setReminder(taskId, task.content, preset.ms, task.link);
           new Notice(`已设置 ${preset.label} 提醒`, 3000);
           this.renderTasks();
         })
@@ -837,7 +837,7 @@ class TodoView extends ItemView {
             new Notice('请输入 1-1440 之间的正整数', 3000);
             return;
           }
-          reminderService.setReminder(taskId, task.content, mins * 60 * 1000);
+          reminderService.setReminder(taskId, task.content, mins * 60 * 1000, task.link);
           new Notice(`已设置 ${mins} 分钟后提醒`, 3000);
           this.renderTasks();
           modal.close();

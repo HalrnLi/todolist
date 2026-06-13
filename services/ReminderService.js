@@ -17,7 +17,7 @@ class ReminderService {
   }
 
   // 设置提醒，返回 fireAt 时间戳
-  setReminder(taskId, content, delayMs) {
+  setReminder(taskId, content, delayMs, link) {
     // 如果已有提醒，先取消
     this.cancelReminder(taskId);
 
@@ -27,14 +27,15 @@ class ReminderService {
         // 已完成的任务不再弹提醒
         const task = this.plugin.findTaskById(taskId);
         if (task && task.completed) return;
-        this._notify(taskId, content);
+        const currentLink = task ? task.link : link;
+        this._notify(taskId, content, currentLink);
       } finally {
         this.reminders.delete(taskId);
         this._notifyViewsToRefresh();
       }
     }, delayMs);
 
-    this.reminders.set(taskId, { timerId, fireAt, content });
+    this.reminders.set(taskId, { timerId, fireAt, content, link });
     return fireAt;
   }
 
@@ -69,15 +70,19 @@ class ReminderService {
   }
 
   // 触发通知
-  _notify(taskId, content) {
+  _notify(taskId, content, link) {
+    const safeLink = link ? this._sanitizeLink(link) : null;
+    const body = safeLink ? `${content}\n${safeLink}` : content;
+
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       try {
         const notification = new Notification('待办提醒', {
-          body: content,
+          body,
           icon: undefined
         });
         notification.onclick = () => {
           window.focus();
+          if (safeLink) window.open(safeLink, '_blank');
           notification.close();
         };
         return;
@@ -86,6 +91,13 @@ class ReminderService {
       }
     }
     new Notice(`⏰ 提醒: ${content}`, 10000);
+  }
+
+  _sanitizeLink(link) {
+    if (!link || typeof link !== 'string') return null;
+    const trimmed = link.trim();
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    return null;
   }
 
   // 通知视图刷新
