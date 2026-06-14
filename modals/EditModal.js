@@ -92,6 +92,12 @@ class EditModal extends Modal {
         // 保存到插件数据
         await this.view.plugin.updateTask(this.task.taskId, this.task);
 
+        // 同步更新提醒内容
+        const reminderService = this.view.plugin.reminderService;
+        if (reminderService && reminderService.hasReminder(this.task.taskId)) {
+          reminderService.updateReminderContent(this.task.taskId, this.task.content, this.task.link);
+        }
+
         // 重新渲染任务列表以触发排序
         this.view.renderTasks();
 

@@ -39,6 +39,15 @@ class ReminderService {
     return fireAt;
   }
 
+  // 更新提醒内容（不重置定时器）
+  updateReminderContent(taskId, content, link) {
+    const reminder = this.reminders.get(taskId);
+    if (reminder) {
+      reminder.content = content;
+      reminder.link = link;
+    }
+  }
+
   // 取消提醒
   cancelReminder(taskId) {
     const reminder = this.reminders.get(taskId);

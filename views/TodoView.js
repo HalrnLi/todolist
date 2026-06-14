@@ -369,15 +369,17 @@ class TodoView extends ItemView {
     if (actions) {
       const existingIcon = actions.querySelector('.todo-reminder-icon');
       if (this.plugin.reminderService?.hasReminder(task.taskId)) {
+        const remaining = this.plugin.reminderService.getRemainingTime(task.taskId);
+        const mins = Math.ceil(remaining / 60000);
         if (!existingIcon) {
-          const remaining = this.plugin.reminderService.getRemainingTime(task.taskId);
-          const mins = Math.ceil(remaining / 60000);
           const alarmIcon = createEl('span', {
             cls: 'todo-reminder-icon',
             text: '⏰',
             attr: { 'data-task-id': task.taskId, title: `${mins} 分钟后提醒` }
           });
           actions.insertBefore(alarmIcon, actions.firstChild);
+        } else {
+          existingIcon.title = `${mins} 分钟后提醒`;
         }
       } else if (existingIcon) {
         existingIcon.remove();
@@ -390,6 +392,10 @@ class TodoView extends ItemView {
       const task = this.plugin.findTaskById(taskId);
       if (task) {
         await this.plugin.updateTask(taskId, { ...task, completed });
+        // 完成任务时自动取消提醒
+        if (completed && this.plugin.reminderService) {
+          this.plugin.reminderService.cancelReminder(taskId);
+        }
         // 直接更新卡片，不全量重渲染
         const card = this.todoContainer.querySelector(`.todo-card[data-task-id="${taskId}"]`);
         if (card) {
