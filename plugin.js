@@ -104,9 +104,9 @@ class TodoKanbanPlugin extends Plugin {
       break;
     }
     
-    // 如果不存在，创建新视图
+    // 如果不存在，创建新视图（在主区域打开）
     if (!leaf) {
-      leaf = this.app.workspace.getRightLeaf(false);
+      leaf = this.app.workspace.getLeaf('tab');
       await leaf.setViewState({
         type: viewType,
         active: true,

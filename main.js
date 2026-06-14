@@ -1698,7 +1698,7 @@ var TodoKanbanPlugin = class extends Plugin {
       break;
     }
     if (!leaf) {
-      leaf = this.app.workspace.getRightLeaf(false);
+      leaf = this.app.workspace.getLeaf("tab");
       await leaf.setViewState({
         type: viewType,
         active: true
