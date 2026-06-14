@@ -87,6 +87,15 @@ class TodoView extends ItemView {
       }, 150);
     }, { signal: this.signal });
 
+    // 通知测试按钮
+    const testNotifyBtn = filterSection.createEl('button', {
+      text: '🔔 测试通知',
+      cls: 'todo-export-button'
+    });
+    testNotifyBtn.style.marginRight = '8px';
+    testNotifyBtn.title = '点击后立即发送一条测试通知';
+    testNotifyBtn.addEventListener('click', () => this._testNotification(), { signal: this.signal });
+
     // 导出按钮
     const exportBtn = filterSection.createEl('button', {
       text: '导出Excel',
@@ -873,6 +882,14 @@ class TodoView extends ItemView {
     }
 
     menu.showAtPosition({ x: e.clientX, y: e.clientY });
+  }
+
+  // 测试通知功能
+  _testNotification() {
+    const now = new Date().toLocaleTimeString();
+    if (this.plugin.reminderService) {
+      this.plugin.reminderService._notify('test', `这是测试通知 (${now})`, 'https://github.com');
+    }
   }
 
   // 显示导出对话框

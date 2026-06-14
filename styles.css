@@ -732,6 +732,64 @@
   --interactive-accent-hover: #0099ff;
 }
 
+/* ======== 右上角通知堆叠容器 ======== */
+.todo-toast-container {
+  position: fixed;
+  top: 48px;
+  right: 16px;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 400px;
+  pointer-events: none;
+}
+
+.todo-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  pointer-events: auto;
+  animation: todo-slide-in 0.3s ease;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.todo-toast:hover {
+  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.35);
+  border-color: var(--interactive-accent);
+}
+
+@keyframes todo-slide-in {
+  from { transform: translateX(120%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.todo-toast-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.todo-toast-text {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.todo-toast-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 /* 浅色主题适配 */
 .theme-light {
   --background-primary: #ffffff;

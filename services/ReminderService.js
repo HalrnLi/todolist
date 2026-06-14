@@ -1,29 +1,56 @@
 const { Notice } = require('obsidian');
 
+// 创建自定义通知弹窗（右上角弹出，支持多个同时显示，垂直堆叠）
+function _showCustomNotification(content, safeLink) {
+  const toast = document.createElement('div');
+  toast.className = 'todo-toast';
+
+  const icon = document.createElement('span');
+  icon.textContent = '⏰';
+  icon.className = 'todo-toast-icon';
+
+  const text = document.createElement('span');
+  text.textContent = content;
+  text.className = 'todo-toast-text';
+
+  const hint = document.createElement('span');
+  hint.className = 'todo-toast-hint';
+  hint.textContent = safeLink ? '点击打开链接' : '点击关闭';
+
+  toast.appendChild(icon);
+  toast.appendChild(text);
+  toast.appendChild(hint);
+
+  toast.addEventListener('click', () => {
+    if (safeLink) window.open(safeLink, '_blank');
+    toast.remove();
+    // 容器空了就清理
+    const container = document.querySelector('.todo-toast-container');
+    if (container && !container.firstChild) container.remove();
+  });
+
+  // 确保有通知容器，新通知插在最前面
+  let container = document.querySelector('.todo-toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'todo-toast-container';
+    document.body.appendChild(container);
+  }
+  container.insertBefore(toast, container.firstChild);
+}
+
 class ReminderService {
   constructor(timerManager, plugin) {
     this.timerManager = timerManager;
     this.plugin = plugin;
     this.reminders = new Map(); // taskId -> { timerId, fireAt, content, link }
-    this._permissionRequested = false;
     this._visibilityHandler = null;
     this._setupVisibilityFallback();
   }
 
-  // 请求通知权限（需在用户操作上下文中调用）
+  // 请求通知权限（Node/Electron 环境无需请求）
   async _requestPermission() {
-    if (typeof Notification === 'undefined') return 'unsupported';
-    if (Notification.permission === 'granted') return 'granted';
-    if (Notification.permission === 'denied') return 'denied';
-    // 避免重复请求
-    if (this._permissionRequested) return Notification.permission;
-    this._permissionRequested = true;
-    try {
-      const result = await Notification.requestPermission();
-      return result;
-    } catch {
-      return 'denied';
-    }
+    return 'granted';
   }
 
   // 页面从后台恢复时，检查是否有错过的提醒
@@ -48,7 +75,6 @@ class ReminderService {
 
   // 设置提醒，返回 fireAt 时间戳
   async setReminder(taskId, content, delayMs, link) {
-    // 如果已有提醒，先取消
     this.cancelReminder(taskId);
 
     const fireAt = Date.now() + delayMs;
@@ -64,11 +90,7 @@ class ReminderService {
       }
     }, delayMs);
 
-    // 先注册提醒（让图标立即显示），再异步请求权限
     this.reminders.set(taskId, { timerId, fireAt, content, link });
-
-    // 在用户操作上下文中请求通知权限
-    this._requestPermission();
 
     return fireAt;
   }
@@ -86,7 +108,6 @@ class ReminderService {
   cancelReminder(taskId) {
     const reminder = this.reminders.get(taskId);
     if (!reminder) return false;
-    // TimerManager 的 setTimeout 返回原生 timer ID，用 clearTimeout 取消
     clearTimeout(reminder.timerId);
     this.reminders.delete(taskId);
     return true;
@@ -119,38 +140,7 @@ class ReminderService {
   // 触发通知
   _notify(taskId, content, link) {
     const safeLink = link ? this._sanitizeLink(link) : null;
-
-    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      try {
-        const body = safeLink ? `${content}\n${safeLink}` : content;
-        const notification = new Notification('待办提醒', { body, requireInteraction: true });
-        notification.onclick = () => {
-          window.focus();
-          if (safeLink) window.open(safeLink, '_blank');
-          notification.close();
-        };
-        return;
-      } catch (e) {
-        // 系统通知失败，使用 Notice fallback
-      }
-    }
-
-    // 使用 Obsidian Notice 作为 fallback（系统通知不可用时）
-    const notice = new Notice(`⏰ 提醒: ${content}`, 0); // 0 = 不自动关闭
-    if (safeLink) {
-      // 创建一个可点击的容器元素
-      const noticeEl = notice.noticeEl;
-      if (noticeEl) {
-        noticeEl.style.cursor = 'pointer';
-        noticeEl.title = safeLink;
-        noticeEl.addEventListener('click', () => {
-          window.open(safeLink, '_blank');
-        });
-      }
-    } else {
-      // 没有链接时 10 秒后自动关闭
-      setTimeout(() => notice.hide(), 10000);
-    }
+    _showCustomNotification(content, safeLink);
   }
 
   _sanitizeLink(link) {

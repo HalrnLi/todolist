@@ -162,28 +162,46 @@ var require_SecurityService = __commonJS({
 var require_ReminderService = __commonJS({
   "services/ReminderService.js"(exports2, module2) {
     var { Notice } = require("obsidian");
+    function _showCustomNotification(content, safeLink) {
+      const toast = document.createElement("div");
+      toast.className = "todo-toast";
+      const icon = document.createElement("span");
+      icon.textContent = "\u23F0";
+      icon.className = "todo-toast-icon";
+      const text = document.createElement("span");
+      text.textContent = content;
+      text.className = "todo-toast-text";
+      const hint = document.createElement("span");
+      hint.className = "todo-toast-hint";
+      hint.textContent = safeLink ? "\u70B9\u51FB\u6253\u5F00\u94FE\u63A5" : "\u70B9\u51FB\u5173\u95ED";
+      toast.appendChild(icon);
+      toast.appendChild(text);
+      toast.appendChild(hint);
+      toast.addEventListener("click", () => {
+        if (safeLink) window.open(safeLink, "_blank");
+        toast.remove();
+        const container2 = document.querySelector(".todo-toast-container");
+        if (container2 && !container2.firstChild) container2.remove();
+      });
+      let container = document.querySelector(".todo-toast-container");
+      if (!container) {
+        container = document.createElement("div");
+        container.className = "todo-toast-container";
+        document.body.appendChild(container);
+      }
+      container.insertBefore(toast, container.firstChild);
+    }
     var ReminderService2 = class {
       constructor(timerManager, plugin) {
         this.timerManager = timerManager;
         this.plugin = plugin;
         this.reminders = /* @__PURE__ */ new Map();
-        this._permissionRequested = false;
         this._visibilityHandler = null;
         this._setupVisibilityFallback();
       }
-      // 请求通知权限（需在用户操作上下文中调用）
+      // 请求通知权限（Node/Electron 环境无需请求）
       async _requestPermission() {
-        if (typeof Notification === "undefined") return "unsupported";
-        if (Notification.permission === "granted") return "granted";
-        if (Notification.permission === "denied") return "denied";
-        if (this._permissionRequested) return Notification.permission;
-        this._permissionRequested = true;
-        try {
-          const result = await Notification.requestPermission();
-          return result;
-        } catch (e) {
-          return "denied";
-        }
+        return "granted";
       }
       // 页面从后台恢复时，检查是否有错过的提醒
       _setupVisibilityFallback() {
@@ -220,7 +238,6 @@ var require_ReminderService = __commonJS({
           }
         }, delayMs);
         this.reminders.set(taskId, { timerId, fireAt, content, link });
-        this._requestPermission();
         return fireAt;
       }
       // 更新提醒内容（不重置定时器）
@@ -263,33 +280,7 @@ var require_ReminderService = __commonJS({
       // 触发通知
       _notify(taskId, content, link) {
         const safeLink = link ? this._sanitizeLink(link) : null;
-        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-          try {
-            const body = safeLink ? `${content}
-${safeLink}` : content;
-            const notification = new Notification("\u5F85\u529E\u63D0\u9192", { body, requireInteraction: true });
-            notification.onclick = () => {
-              window.focus();
-              if (safeLink) window.open(safeLink, "_blank");
-              notification.close();
-            };
-            return;
-          } catch (e) {
-          }
-        }
-        const notice = new Notice(`\u23F0 \u63D0\u9192: ${content}`, 0);
-        if (safeLink) {
-          const noticeEl = notice.noticeEl;
-          if (noticeEl) {
-            noticeEl.style.cursor = "pointer";
-            noticeEl.title = safeLink;
-            noticeEl.addEventListener("click", () => {
-              window.open(safeLink, "_blank");
-            });
-          }
-        } else {
-          setTimeout(() => notice.hide(), 1e4);
-        }
+        _showCustomNotification(content, safeLink);
       }
       _sanitizeLink(link) {
         if (!link || typeof link !== "string") return null;
@@ -608,6 +599,13 @@ var require_TodoView = __commonJS({
             this.renderTasks();
           }, 150);
         }, { signal: this.signal });
+        const testNotifyBtn = filterSection.createEl("button", {
+          text: "\u{1F514} \u6D4B\u8BD5\u901A\u77E5",
+          cls: "todo-export-button"
+        });
+        testNotifyBtn.style.marginRight = "8px";
+        testNotifyBtn.title = "\u70B9\u51FB\u540E\u7ACB\u5373\u53D1\u9001\u4E00\u6761\u6D4B\u8BD5\u901A\u77E5";
+        testNotifyBtn.addEventListener("click", () => this._testNotification(), { signal: this.signal });
         const exportBtn = filterSection.createEl("button", {
           text: "\u5BFC\u51FAExcel",
           cls: "todo-export-button"
@@ -1237,6 +1235,13 @@ var require_TodoView = __commonJS({
           );
         }
         menu.showAtPosition({ x: e.clientX, y: e.clientY });
+      }
+      // 测试通知功能
+      _testNotification() {
+        const now = (/* @__PURE__ */ new Date()).toLocaleTimeString();
+        if (this.plugin.reminderService) {
+          this.plugin.reminderService._notify("test", `\u8FD9\u662F\u6D4B\u8BD5\u901A\u77E5 (${now})`, "https://github.com");
+        }
       }
       // 显示导出对话框
       showExportDialog() {
