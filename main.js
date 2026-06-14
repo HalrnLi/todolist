@@ -542,6 +542,8 @@ var require_TodoView = __commonJS({
         this.signal = this.abortController.signal;
         this.searchDebounceTimer = null;
         this.filterDebounceTimer = null;
+        this.tempTasks = [];
+        this.tempSectionCollapsed = true;
       }
       getViewType() {
         return "todo-kanban-view";
@@ -620,6 +622,61 @@ var require_TodoView = __commonJS({
           cls: "todo-clear-tag-btn"
         });
         clearTagBtn.addEventListener("click", () => this.clearTagFilter(), { signal: this.signal });
+        this.tempSection = container.createEl("div", { cls: "todo-temp-section" });
+        this.tempSection.style.flexShrink = "0";
+        const tempHeader = this.tempSection.createEl("div", { cls: "todo-temp-header" });
+        tempHeader.addEventListener("click", () => {
+          this.tempSectionCollapsed = !this.tempSectionCollapsed;
+          this._updateTempSectionVisibility();
+        }, { signal: this.signal });
+        this.tempToggleIcon = tempHeader.createEl("span", {
+          cls: "todo-temp-toggle-icon",
+          text: "\u25B6"
+        });
+        this.tempTitle = tempHeader.createEl("span", {
+          cls: "todo-temp-title",
+          text: "\u4E34\u65F6\u5F85\u529E"
+        });
+        this.tempCountBadge = tempHeader.createEl("span", {
+          cls: "todo-temp-count-badge",
+          text: ""
+        });
+        this.tempClearCompletedBtn = tempHeader.createEl("button", {
+          text: "\u6E05\u9664\u5DF2\u5B8C\u6210",
+          cls: "todo-temp-clear-completed-btn"
+        });
+        this.tempClearCompletedBtn.style.display = "none";
+        this.tempClearCompletedBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.tempTasks = this.tempTasks.filter((t) => !t.completed);
+          this._renderTempTasks();
+        }, { signal: this.signal });
+        this.tempBody = this.tempSection.createEl("div", { cls: "todo-temp-body" });
+        this.tempBody.style.display = "none";
+        const tempInputRow = this.tempBody.createEl("div", { cls: "todo-temp-input-row" });
+        this.tempInput = tempInputRow.createEl("input", {
+          type: "text",
+          placeholder: "\u5FEB\u901F\u6DFB\u52A0\u4E34\u65F6\u4EFB\u52A1...",
+          cls: "todo-temp-input"
+        });
+        this.tempInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            this._addTempTask();
+          }
+        }, { signal: this.signal });
+        const tempAddBtn = tempInputRow.createEl("button", {
+          text: "+",
+          cls: "todo-temp-add-btn"
+        });
+        tempAddBtn.addEventListener("click", () => this._addTempTask(), { signal: this.signal });
+        const tempLinkRow = this.tempBody.createEl("div", { cls: "todo-temp-input-row" });
+        this.tempLinkInput = tempLinkRow.createEl("input", {
+          type: "text",
+          placeholder: "\u94FE\u63A5\uFF08\u53EF\u9009\uFF09...",
+          cls: "todo-temp-input"
+        });
+        this.tempListContainer = this.tempBody.createEl("div", { cls: "todo-temp-list" });
         const tasks = ((_a = this.plugin.tasksData) == null ? void 0 : _a.tasks) || [];
         let totalTasks = 0, completedTasks = 0;
         for (const dateTask of tasks) {
@@ -696,6 +753,7 @@ var require_TodoView = __commonJS({
         }, { signal: this.signal });
         this.setupEventDelegation(this.signal);
         this.setupDragDelegation();
+        this._setupTempEventDelegation();
         this.todoContainer.addEventListener("dblclick", (e) => {
           const content = e.target.closest(".todo-content");
           if (!content) return;
@@ -1158,11 +1216,16 @@ var require_TodoView = __commonJS({
         }
       }
       // 显示提醒右键菜单
-      showReminderMenu(e, taskId) {
+      showReminderMenu(e, taskId, taskObj = null) {
         const menu = new Menu();
         const reminderService = this.plugin.reminderService;
-        const task = this.plugin.findTaskById(taskId);
+        const task = taskObj || this.plugin.findTaskById(taskId);
         if (!task || !reminderService) return;
+        const isTemp = !!taskObj;
+        const refreshUI = () => {
+          this.renderTasks();
+          if (isTemp) this._renderTempTasks();
+        };
         const presets = [
           { label: "10 \u5206\u949F\u540E", ms: 10 * 60 * 1e3 },
           { label: "30 \u5206\u949F\u540E", ms: 30 * 60 * 1e3 },
@@ -1175,7 +1238,7 @@ var require_TodoView = __commonJS({
             (item) => item.setTitle(preset.label).onClick(() => {
               reminderService.setReminder(taskId, task.content, preset.ms, task.link);
               new Notice(`\u5DF2\u8BBE\u7F6E ${preset.label} \u63D0\u9192`, 3e3);
-              this.renderTasks();
+              refreshUI();
             })
           );
         });
@@ -1212,7 +1275,7 @@ var require_TodoView = __commonJS({
               }
               reminderService.setReminder(taskId, task.content, mins * 60 * 1e3, task.link);
               new Notice(`\u5DF2\u8BBE\u7F6E ${mins} \u5206\u949F\u540E\u63D0\u9192`, 3e3);
-              this.renderTasks();
+              refreshUI();
               modal.close();
             });
             inputEl.addEventListener("keydown", (ev) => {
@@ -1230,7 +1293,7 @@ var require_TodoView = __commonJS({
             (item) => item.setTitle(`\u23F0 \u53D6\u6D88\u63D0\u9192 (\u5269\u4F59 ${mins} \u5206\u949F)`).onClick(() => {
               reminderService.cancelReminder(taskId);
               new Notice("\u5DF2\u53D6\u6D88\u63D0\u9192", 3e3);
-              this.renderTasks();
+              refreshUI();
             })
           );
         }
@@ -1420,6 +1483,138 @@ var require_TodoView = __commonJS({
           await this.plugin.updateTasksOrder(taskDate, newOrder);
         } catch (error) {
           this.errorHandler.handle(error, "\u4FDD\u5B58\u4EFB\u52A1\u987A\u5E8F");
+        }
+      }
+      // ======== 临时待办方法 ========
+      // 设置临时待办区域的事件委托
+      _setupTempEventDelegation() {
+        this.tempListContainer.addEventListener("click", (e) => {
+          const card = e.target.closest(".todo-temp-card");
+          if (!card) return;
+          if (e.target.type === "checkbox") {
+            const tempId = card.dataset.tempId;
+            const task = this.tempTasks.find((t) => t.tempId === tempId);
+            if (task) {
+              task.completed = e.target.checked;
+              card.classList.toggle("todo-temp-card-completed", task.completed);
+              const textEl = card.querySelector(".todo-temp-text");
+              if (textEl) textEl.classList.toggle("todo-temp-text-completed", task.completed);
+              this._updateTempCountBadge();
+            }
+          }
+          if (e.target.classList.contains("todo-temp-delete-btn")) {
+            const tempId = card.dataset.tempId;
+            this.tempTasks = this.tempTasks.filter((t) => t.tempId !== tempId);
+            if (this.plugin.reminderService) {
+              this.plugin.reminderService.cancelReminder(tempId);
+            }
+            card.remove();
+            this._updateTempCountBadge();
+          }
+        }, { signal: this.signal });
+        this.tempListContainer.addEventListener("contextmenu", (e) => {
+          const card = e.target.closest(".todo-temp-card");
+          if (!card) return;
+          e.preventDefault();
+          const tempId = card.dataset.tempId;
+          const task = this.tempTasks.find((t) => t.tempId === tempId);
+          if (task) {
+            this.showReminderMenu(e, tempId, task);
+          }
+        }, { signal: this.signal });
+      }
+      // 添加临时任务
+      _addTempTask() {
+        const text = this.tempInput.value.trim();
+        if (!text) return;
+        try {
+          const validated = SecurityService2.validateTaskContent(text);
+          const link = this.tempLinkInput.value.trim() || null;
+          const safeLink = SecurityService2.sanitizeLink(link);
+          const tempTask = {
+            tempId: generateUUID(),
+            content: validated,
+            completed: false,
+            link: safeLink
+          };
+          this.tempTasks.push(tempTask);
+          this.tempInput.value = "";
+          this.tempLinkInput.value = "";
+          this._renderTempTasks();
+        } catch (error) {
+          new Notice(error.message, 3e3);
+        }
+      }
+      // 渲染临时任务列表
+      _renderTempTasks() {
+        this.tempListContainer.empty();
+        for (const task of this.tempTasks) {
+          this._createTempCard(this.tempListContainer, task);
+        }
+        this._updateTempCountBadge();
+      }
+      // 创建单张临时任务卡片
+      _createTempCard(container, task) {
+        var _a;
+        const card = container.createEl("div", {
+          cls: `todo-temp-card${task.completed ? " todo-temp-card-completed" : ""}`
+        });
+        card.dataset.tempId = task.tempId;
+        card.createEl("input", {
+          type: "checkbox",
+          checked: task.completed,
+          cls: "todo-temp-checkbox"
+        });
+        const content = card.createEl("div", { cls: "todo-temp-content" });
+        const textEl = content.createEl("span", {
+          cls: `todo-temp-text${task.completed ? " todo-temp-text-completed" : ""}`
+        });
+        textEl.textContent = task.content;
+        if (task.link) {
+          const safeLink = SecurityService2.sanitizeLink(task.link);
+          if (safeLink) {
+            const linkEl = content.createEl("a", {
+              text: "\u6253\u5F00\u94FE\u63A5",
+              cls: "todo-temp-link",
+              href: safeLink
+            });
+            linkEl.addEventListener("click", (e) => {
+              e.stopPropagation();
+              window.open(safeLink, "_blank");
+            });
+          }
+        }
+        const actions = card.createEl("div", { cls: "todo-temp-actions" });
+        if ((_a = this.plugin.reminderService) == null ? void 0 : _a.hasReminder(task.tempId)) {
+          const remaining = this.plugin.reminderService.getRemainingTime(task.tempId);
+          const mins = Math.ceil(remaining / 6e4);
+          actions.createEl("span", {
+            cls: "todo-reminder-icon",
+            text: "\u23F0",
+            attr: { title: `${mins} \u5206\u949F\u540E\u63D0\u9192` }
+          });
+        }
+        card.createEl("button", {
+          text: "\xD7",
+          cls: "todo-temp-delete-btn"
+        });
+      }
+      // 更新临时待办数量徽章
+      _updateTempCountBadge() {
+        const total = this.tempTasks.length;
+        const completedCount = this.tempTasks.filter((t) => t.completed).length;
+        this.tempCountBadge.textContent = total > 0 ? `(${total})` : "";
+        this.tempClearCompletedBtn.style.display = completedCount > 0 ? "" : "none";
+      }
+      // 切换临时待办区域的展开/折叠状态
+      _updateTempSectionVisibility() {
+        if (this.tempSectionCollapsed) {
+          this.tempBody.style.display = "none";
+          this.tempToggleIcon.textContent = "\u25B6";
+        } else {
+          this.tempBody.style.display = "";
+          this.tempToggleIcon.textContent = "\u25BC";
+          this.tempInput.focus();
         }
       }
     };

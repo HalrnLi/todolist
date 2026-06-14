@@ -17,6 +17,9 @@ class TodoView extends ItemView {
     // 防抖定时器（搜索和筛选器共用）
     this.searchDebounceTimer = null;
     this.filterDebounceTimer = null;
+    // 临时待办（纯内存，关闭即清空）
+    this.tempTasks = [];
+    this.tempSectionCollapsed = true;
   }
 
   getViewType() {
@@ -114,6 +117,77 @@ class TodoView extends ItemView {
     });
     clearTagBtn.addEventListener('click', () => this.clearTagFilter(), { signal: this.signal });
 
+    // --- 临时待办区域 ---
+    this.tempSection = container.createEl('div', { cls: 'todo-temp-section' });
+    this.tempSection.style.flexShrink = '0';
+
+    // 标题行（始终可见，点击切换展开/折叠）
+    const tempHeader = this.tempSection.createEl('div', { cls: 'todo-temp-header' });
+    tempHeader.addEventListener('click', () => {
+      this.tempSectionCollapsed = !this.tempSectionCollapsed;
+      this._updateTempSectionVisibility();
+    }, { signal: this.signal });
+
+    this.tempToggleIcon = tempHeader.createEl('span', {
+      cls: 'todo-temp-toggle-icon',
+      text: '▶'
+    });
+    this.tempTitle = tempHeader.createEl('span', {
+      cls: 'todo-temp-title',
+      text: '临时待办'
+    });
+    this.tempCountBadge = tempHeader.createEl('span', {
+      cls: 'todo-temp-count-badge',
+      text: ''
+    });
+
+    // 清除已完成按钮（有已完成任务时才显示）
+    this.tempClearCompletedBtn = tempHeader.createEl('button', {
+      text: '清除已完成',
+      cls: 'todo-temp-clear-completed-btn'
+    });
+    this.tempClearCompletedBtn.style.display = 'none';
+    this.tempClearCompletedBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); // 防止触发标题行的折叠切换
+      this.tempTasks = this.tempTasks.filter(t => !t.completed);
+      this._renderTempTasks();
+    }, { signal: this.signal });
+
+    // 可折叠体
+    this.tempBody = this.tempSection.createEl('div', { cls: 'todo-temp-body' });
+    this.tempBody.style.display = 'none'; // 默认折叠
+
+    // 输入行：文本输入 + 添加按钮
+    const tempInputRow = this.tempBody.createEl('div', { cls: 'todo-temp-input-row' });
+    this.tempInput = tempInputRow.createEl('input', {
+      type: 'text',
+      placeholder: '快速添加临时任务...',
+      cls: 'todo-temp-input'
+    });
+    this.tempInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this._addTempTask();
+      }
+    }, { signal: this.signal });
+
+    const tempAddBtn = tempInputRow.createEl('button', {
+      text: '+',
+      cls: 'todo-temp-add-btn'
+    });
+    tempAddBtn.addEventListener('click', () => this._addTempTask(), { signal: this.signal });
+
+    // 链接输入（可选）
+    const tempLinkRow = this.tempBody.createEl('div', { cls: 'todo-temp-input-row' });
+    this.tempLinkInput = tempLinkRow.createEl('input', {
+      type: 'text',
+      placeholder: '链接（可选）...',
+      cls: 'todo-temp-input'
+    });
+
+    // 任务列表容器
+    this.tempListContainer = this.tempBody.createEl('div', { cls: 'todo-temp-list' });
+
     const tasks = this.plugin.tasksData?.tasks || [];
     let totalTasks = 0, completedTasks = 0;
     for (const dateTask of tasks) {
@@ -209,6 +283,7 @@ class TodoView extends ItemView {
 
     this.setupEventDelegation(this.signal);
     this.setupDragDelegation();
+    this._setupTempEventDelegation();
 
     // 双击编辑委托（容器级别，避免重复绑定）
     this.todoContainer.addEventListener('dblclick', (e) => {
@@ -790,11 +865,18 @@ class TodoView extends ItemView {
   }
 
   // 显示提醒右键菜单
-  showReminderMenu(e, taskId) {
+  showReminderMenu(e, taskId, taskObj = null) {
     const menu = new Menu();
     const reminderService = this.plugin.reminderService;
-    const task = this.plugin.findTaskById(taskId);
+    const task = taskObj || this.plugin.findTaskById(taskId);
     if (!task || !reminderService) return;
+
+    // 判断是否为临时任务
+    const isTemp = !!taskObj;
+    const refreshUI = () => {
+      this.renderTasks();
+      if (isTemp) this._renderTempTasks();
+    };
 
     const presets = [
       { label: '10 分钟后', ms: 10 * 60 * 1000 },
@@ -811,7 +893,7 @@ class TodoView extends ItemView {
         .onClick(() => {
           reminderService.setReminder(taskId, task.content, preset.ms, task.link);
           new Notice(`已设置 ${preset.label} 提醒`, 3000);
-          this.renderTasks();
+          refreshUI();
         })
       );
     });
@@ -854,7 +936,7 @@ class TodoView extends ItemView {
           }
           reminderService.setReminder(taskId, task.content, mins * 60 * 1000, task.link);
           new Notice(`已设置 ${mins} 分钟后提醒`, 3000);
-          this.renderTasks();
+          refreshUI();
           modal.close();
         });
 
@@ -876,7 +958,7 @@ class TodoView extends ItemView {
         .onClick(() => {
           reminderService.cancelReminder(taskId);
           new Notice('已取消提醒', 3000);
-          this.renderTasks();
+          refreshUI();
         })
       );
     }
@@ -1112,6 +1194,159 @@ class TodoView extends ItemView {
       await this.plugin.updateTasksOrder(taskDate, newOrder);
     } catch (error) {
       this.errorHandler.handle(error, '保存任务顺序');
+    }
+  }
+
+  // ======== 临时待办方法 ========
+
+  // 设置临时待办区域的事件委托
+  _setupTempEventDelegation() {
+    this.tempListContainer.addEventListener('click', (e) => {
+      const card = e.target.closest('.todo-temp-card');
+      if (!card) return;
+
+      // 处理复选框
+      if (e.target.type === 'checkbox') {
+        const tempId = card.dataset.tempId;
+        const task = this.tempTasks.find(t => t.tempId === tempId);
+        if (task) {
+          task.completed = e.target.checked;
+          card.classList.toggle('todo-temp-card-completed', task.completed);
+          const textEl = card.querySelector('.todo-temp-text');
+          if (textEl) textEl.classList.toggle('todo-temp-text-completed', task.completed);
+          this._updateTempCountBadge();
+        }
+      }
+
+      // 处理删除按钮
+      if (e.target.classList.contains('todo-temp-delete-btn')) {
+        const tempId = card.dataset.tempId;
+        this.tempTasks = this.tempTasks.filter(t => t.tempId !== tempId);
+        // 取消关联的提醒
+        if (this.plugin.reminderService) {
+          this.plugin.reminderService.cancelReminder(tempId);
+        }
+        card.remove();
+        this._updateTempCountBadge();
+      }
+    }, { signal: this.signal });
+
+    // 右键菜单（提醒功能）
+    this.tempListContainer.addEventListener('contextmenu', (e) => {
+      const card = e.target.closest('.todo-temp-card');
+      if (!card) return;
+      e.preventDefault();
+      const tempId = card.dataset.tempId;
+      const task = this.tempTasks.find(t => t.tempId === tempId);
+      if (task) {
+        this.showReminderMenu(e, tempId, task);
+      }
+    }, { signal: this.signal });
+  }
+
+  // 添加临时任务
+  _addTempTask() {
+    const text = this.tempInput.value.trim();
+    if (!text) return;
+
+    try {
+      const validated = SecurityService.validateTaskContent(text);
+      const link = this.tempLinkInput.value.trim() || null;
+      const safeLink = SecurityService.sanitizeLink(link);
+      const tempTask = {
+        tempId: generateUUID(),
+        content: validated,
+        completed: false,
+        link: safeLink
+      };
+      this.tempTasks.push(tempTask);
+      this.tempInput.value = '';
+      this.tempLinkInput.value = '';
+      this._renderTempTasks();
+    } catch (error) {
+      new Notice(error.message, 3000);
+    }
+  }
+
+  // 渲染临时任务列表
+  _renderTempTasks() {
+    this.tempListContainer.empty();
+    for (const task of this.tempTasks) {
+      this._createTempCard(this.tempListContainer, task);
+    }
+    this._updateTempCountBadge();
+  }
+
+  // 创建单张临时任务卡片
+  _createTempCard(container, task) {
+    const card = container.createEl('div', {
+      cls: `todo-temp-card${task.completed ? ' todo-temp-card-completed' : ''}`
+    });
+    card.dataset.tempId = task.tempId;
+
+    card.createEl('input', {
+      type: 'checkbox',
+      checked: task.completed,
+      cls: 'todo-temp-checkbox'
+    });
+
+    const content = card.createEl('div', { cls: 'todo-temp-content' });
+    const textEl = content.createEl('span', {
+      cls: `todo-temp-text${task.completed ? ' todo-temp-text-completed' : ''}`
+    });
+    textEl.textContent = task.content;
+
+    // 链接
+    if (task.link) {
+      const safeLink = SecurityService.sanitizeLink(task.link);
+      if (safeLink) {
+        const linkEl = content.createEl('a', {
+          text: '打开链接',
+          cls: 'todo-temp-link',
+          href: safeLink
+        });
+        linkEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          window.open(safeLink, '_blank');
+        });
+      }
+    }
+
+    // 提醒图标
+    const actions = card.createEl('div', { cls: 'todo-temp-actions' });
+    if (this.plugin.reminderService?.hasReminder(task.tempId)) {
+      const remaining = this.plugin.reminderService.getRemainingTime(task.tempId);
+      const mins = Math.ceil(remaining / 60000);
+      actions.createEl('span', {
+        cls: 'todo-reminder-icon',
+        text: '⏰',
+        attr: { title: `${mins} 分钟后提醒` }
+      });
+    }
+
+    card.createEl('button', {
+      text: '×',
+      cls: 'todo-temp-delete-btn'
+    });
+  }
+
+  // 更新临时待办数量徽章
+  _updateTempCountBadge() {
+    const total = this.tempTasks.length;
+    const completedCount = this.tempTasks.filter(t => t.completed).length;
+    this.tempCountBadge.textContent = total > 0 ? `(${total})` : '';
+    this.tempClearCompletedBtn.style.display = completedCount > 0 ? '' : 'none';
+  }
+
+  // 切换临时待办区域的展开/折叠状态
+  _updateTempSectionVisibility() {
+    if (this.tempSectionCollapsed) {
+      this.tempBody.style.display = 'none';
+      this.tempToggleIcon.textContent = '▶';
+    } else {
+      this.tempBody.style.display = '';
+      this.tempToggleIcon.textContent = '▼';
+      this.tempInput.focus();
     }
   }
 }

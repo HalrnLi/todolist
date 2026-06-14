@@ -263,6 +263,199 @@
   color: var(--text-primary);
 }
 
+/* ======== 临时待办区域 ======== */
+.todo-temp-section {
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: 4px;
+  margin: 0.3rem 0;
+  background-color: var(--background-secondary-alt);
+}
+
+.todo-temp-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.8rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease;
+}
+
+.todo-temp-header:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.todo-temp-toggle-icon {
+  font-size: 10px;
+  color: var(--text-muted);
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.todo-temp-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.todo-temp-count-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.todo-temp-clear-completed-btn {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 11px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  background-color: var(--background-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.todo-temp-clear-completed-btn:hover {
+  background-color: var(--background-modifier-error);
+  color: var(--text-error);
+  border-color: var(--background-modifier-error);
+}
+
+.todo-temp-body {
+  padding: 0 0.8rem 0.6rem 0.8rem;
+}
+
+.todo-temp-input-row {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.todo-temp-input {
+  flex: 1;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background-color: var(--background-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.todo-temp-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.todo-temp-add-btn {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--interactive-accent);
+  border-radius: 4px;
+  background-color: var(--interactive-accent);
+  color: white;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.todo-temp-add-btn:hover {
+  opacity: 0.9;
+}
+
+.todo-temp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.todo-temp-card {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  background-color: var(--background-primary);
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.todo-temp-card:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.todo-temp-card-completed {
+  opacity: 0.6;
+}
+
+.todo-temp-checkbox {
+  margin: 0;
+  transform: scale(1.1);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.todo-temp-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.todo-temp-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.todo-temp-text-completed {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.todo-temp-delete-btn {
+  background: none;
+  border: none;
+  font-size: 16px;
+  font-weight: bold;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.todo-temp-delete-btn:hover {
+  background-color: var(--background-modifier-error);
+  color: var(--text-error);
+}
+
+.todo-temp-link {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--text-accent);
+  text-decoration: none;
+  margin-top: 4px;
+}
+
+.todo-temp-link:hover {
+  text-decoration: underline;
+}
+
+.todo-temp-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 /* 优先级筛选区域 */
 .todo-priority-filter-section {
   flex-shrink: 0;
