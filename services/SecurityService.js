@@ -28,10 +28,16 @@ class SecurityService {
   static sanitizeLink(link) {
     if (!link || typeof link !== 'string') return '';
 
-    // 只允许http/https协议
+    // 自动添加协议前缀（如果没有）
+    let processedLink = link.trim();
+    if (!/^https?:\/\//i.test(processedLink)) {
+      processedLink = 'https://' + processedLink;
+    }
+
+    // 验证URL有效性
     try {
-      const url = new URL(link);
-      return url.protocol === 'http:' || url.protocol === 'https:' ? link : '';
+      const url = new URL(processedLink);
+      return url.protocol === 'http:' || url.protocol === 'https:' ? processedLink : '';
     } catch {
       return '';
     }

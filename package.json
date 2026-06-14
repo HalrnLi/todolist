@@ -4,8 +4,8 @@
   "description": "A kanban-style todo manager for Obsidian with priority and tags support",
   "main": "main.js",
   "scripts": {
-    "dev": "tsc -watch",
-    "build": "tsc"
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production && node -e \"var p='E:/知识库/.obsidian/plugins/todolist';var f=require('fs');['main.js','manifest.json','styles.css'].forEach(function(n){f.copyFileSync(n,p+'/'+n);console.log('  copied: '+n)});console.log('>> 已部署到: '+p)\""
   },
   "keywords": [
     "obsidian",
