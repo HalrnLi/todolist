@@ -90,15 +90,6 @@ class TodoView extends ItemView {
       }, 150);
     }, { signal: this.signal });
 
-    // 通知测试按钮
-    const testNotifyBtn = filterSection.createEl('button', {
-      text: '🔔 测试通知',
-      cls: 'todo-export-button'
-    });
-    testNotifyBtn.style.marginRight = '8px';
-    testNotifyBtn.title = '点击后立即发送一条测试通知';
-    testNotifyBtn.addEventListener('click', () => this._testNotification(), { signal: this.signal });
-
     // 导出按钮
     const exportBtn = filterSection.createEl('button', {
       text: '导出Excel',

@@ -601,13 +601,6 @@ var require_TodoView = __commonJS({
             this.renderTasks();
           }, 150);
         }, { signal: this.signal });
-        const testNotifyBtn = filterSection.createEl("button", {
-          text: "\u{1F514} \u6D4B\u8BD5\u901A\u77E5",
-          cls: "todo-export-button"
-        });
-        testNotifyBtn.style.marginRight = "8px";
-        testNotifyBtn.title = "\u70B9\u51FB\u540E\u7ACB\u5373\u53D1\u9001\u4E00\u6761\u6D4B\u8BD5\u901A\u77E5";
-        testNotifyBtn.addEventListener("click", () => this._testNotification(), { signal: this.signal });
         const exportBtn = filterSection.createEl("button", {
           text: "\u5BFC\u51FAExcel",
           cls: "todo-export-button"
