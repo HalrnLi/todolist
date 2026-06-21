@@ -1,4 +1,4 @@
-const { Plugin } = require('obsidian');
+const { Plugin, Notice } = require('obsidian');
 const path = require('path');
 const { formatDate, formatDateTime } = require('./utils/date');
 const TimerManager = require('./services/TimerManager');
@@ -14,9 +14,11 @@ class TodoKanbanPlugin extends Plugin {
     this.taskIdIndex = new Map(); // taskId -> { date, task }
     this.dateIndex = new Map();   // date -> dateTask
     this.timerManager = new TimerManager();
-    this.errorHandler = new ErrorHandler(require('obsidian').Notice);
+    this.errorHandler = new ErrorHandler(Notice);
     this.reminderService = null; // onload 中初始化
     this._dailyTimerId = null;
+    // 串行化写操作的 Promise 链，避免并发写文件导致数据交错/丢失
+    this._saveChain = Promise.resolve();
   }
 
   buildIndexes() {
@@ -40,30 +42,44 @@ class TodoKanbanPlugin extends Plugin {
   }
 
   migrateData(oldData) {
-    if (!oldData.version) {
-      // 从旧版本迁移
-      return {
-        version: '1.2.0',
-        tasks: oldData.tasks || [],
-        lastModified: new Date().toISOString()
-      };
+    // 防御性校验：确保数据结构合法，避免脏数据导致迁移时崩溃或写坏数据
+    // 校验失败时抛出错误，由 loadTasks 的 try/catch 捕获并尝试从备份恢复
+    if (!oldData || typeof oldData !== 'object') {
+      throw new Error('任务数据格式无效');
     }
 
+    // 规范化 tasks 为数组，过滤掉结构不完整的日期组（防御历史脏数据）
+    const rawTasks = Array.isArray(oldData.tasks) ? oldData.tasks : [];
+    const validTasks = [];
+    for (const dateTask of rawTasks) {
+      if (!dateTask || typeof dateTask !== 'object') continue;
+      const tasksList = Array.isArray(dateTask.tasksList) ? dateTask.tasksList : [];
+      // 至少保留日期标识，跳过完全无结构的条目
+      if (dateTask.date == null && tasksList.length === 0) continue;
+      validTasks.push({ ...dateTask, tasksList });
+    }
+
+    const migrated = {
+      version: oldData.version || '1.2.0',
+      tasks: validTasks,
+      lastModified: oldData.lastModified || new Date().toISOString()
+    };
+
     // 版本 1.1.0 -> 1.2.0：添加 priority 字段支持
-    if (oldData.version === '1.1.0') {
+    if (migrated.version === '1.1.0') {
       // 为所有任务添加 priority 字段（如果不存在则设为 null）
-      for (const dateTask of oldData.tasks) {
+      for (const dateTask of migrated.tasks) {
         for (const task of dateTask.tasksList) {
-          if (!task.hasOwnProperty('priority')) {
-            task.priority = null;
+          if (!task || typeof task !== 'object' || !task.hasOwnProperty('priority')) {
+            if (task && typeof task === 'object') task.priority = null;
           }
         }
       }
-      oldData.version = '1.2.0';
-      oldData.lastModified = new Date().toISOString();
+      migrated.version = '1.2.0';
+      migrated.lastModified = new Date().toISOString();
     }
 
-    return oldData;
+    return migrated;
   }
 
   async onload() {
@@ -118,46 +134,104 @@ class TodoKanbanPlugin extends Plugin {
   }
 
   async loadTasks() {
+    const emptyData = () => ({ version: '1.2.0', tasks: [], lastModified: new Date().toISOString() });
+
     try {
       const exists = await this.app.vault.adapter.exists(this.tasksFilePath);
       if (exists) {
         const data = await this.app.vault.adapter.read(this.tasksFilePath);
-        let parsedData = JSON.parse(data);
 
-        // 数据迁移
-        parsedData = this.migrateData(parsedData);
+        try {
+          let parsedData = JSON.parse(data);
 
-        this.tasksData = parsedData;
+          // 数据迁移（内部会做结构校验，失败会抛出）
+          parsedData = this.migrateData(parsedData);
+
+          this.tasksData = parsedData;
+        } catch (parseOrMigrateError) {
+          // JSON 解析失败或迁移失败：尝试从备份恢复，避免用户数据全部丢失
+          this.errorHandler.handle(parseOrMigrateError, '解析任务数据');
+          const recovered = await this._recoverFromBackup();
+          this.tasksData = recovered || emptyData();
+          if (recovered) {
+            // 恢复成功后立即落盘，覆盖损坏的主文件
+            await this._writeRaw(this.tasksData);
+          }
+        }
       } else {
-        this.tasksData = { version: '1.2.0', tasks: [], lastModified: new Date().toISOString() };
+        this.tasksData = emptyData();
         await this.saveTasks();
       }
 
       // 构建索引
       this.buildIndexes();
+
+      // 加载成功后建立/刷新备份基线（首次启动或数据已变更时）
+      // 这样下次发生损坏时才有可恢复的副本
+      await this.backupTasks();
     } catch (error) {
       this.errorHandler.handle(error, '加载任务数据');
-      this.tasksData = { version: '1.2.0', tasks: [], lastModified: new Date().toISOString() };
+      this.tasksData = emptyData();
       this.buildIndexes();
+    }
+  }
+
+  // 尝试从备份文件恢复数据，失败返回 null
+  async _recoverFromBackup() {
+    try {
+      const backupPath = this.tasksFilePath.replace('.json', '-backup.json');
+      const backupExists = await this.app.vault.adapter.exists(backupPath);
+      if (!backupExists) return null;
+
+      const data = await this.app.vault.adapter.read(backupPath);
+      const parsed = JSON.parse(data);
+      // 备份也可能需要迁移（备份可能是旧版本保存的）
+      return this.migrateData(parsed);
+    } catch (error) {
+      console.error('[loadTasks] 从备份恢复失败:', error);
+      return null;
+    }
+  }
+
+  // 直接写入数据文件（不更新 lastModified、不重建索引、不触发备份）
+  // 仅供恢复流程覆盖损坏文件时使用
+  async _writeRaw(data) {
+    try {
+      await this.app.vault.adapter.write(this.tasksFilePath, JSON.stringify(data, null, 2));
+    } catch (error) {
+      console.error('[loadTasks] 写入恢复数据失败:', error);
     }
   }
 
   async saveTasks() {
-    try {
-      this.tasksData.lastModified = new Date().toISOString();
-
-      await this.app.vault.adapter.write(this.tasksFilePath, JSON.stringify(this.tasksData, null, 2));
-
-      // 每次保存后重建索引，确保 dateIndex/taskIdIndex 与实际数据一致
-      // （addTask 创建新日期组、deleteTask 删除空日期组都会直接修改 tasks 数组，需要同步索引）
-      this.buildIndexes();
-    } catch (error) {
-      this.errorHandler.handle(error, '保存任务数据');
-      throw error; // 重新抛出，让调用者处理
-    }
+    // 串行化所有写操作：把本次写追加到 _saveChain 链尾，
+    // 保证后一次 write 一定在前一次写完成之后才开始，避免并发写导致文件内容交错或丢失。
+    // 调用方在调用前已同步修改 this.tasksData，写入时取其当前值（含此前所有叠加修改）。
+    const thisSave = this._saveChain.then(async () => {
+      try {
+        this.tasksData.lastModified = new Date().toISOString();
+        await this.app.vault.adapter.write(
+          this.tasksFilePath,
+          JSON.stringify(this.tasksData, null, 2)
+        );
+        // 每次保存后重建索引，确保 dateIndex/taskIdIndex 与实际数据一致
+        // （addTask 创建新日期组、deleteTask 删除空日期组都会直接修改 tasks 数组，需要同步索引）
+        this.buildIndexes();
+      } catch (error) {
+        this.errorHandler.handle(error, '保存任务数据');
+        throw error; // 重新抛出，让调用者（thisSave 的 await 方）感知失败
+      }
+    });
+    // 关键：链本身用 .catch 吞掉 rejection，保持链始终处于 fulfilled 状态，
+    // 否则一次写失败会让 _saveChain 变成 rejected，后续所有 .then 都被跳过 → 永久中毒。
+    // （错误提示已在上方 catch 中通过 errorHandler 发出，不会静默）
+    this._saveChain = thisSave.catch(() => {});
+    // 返回真实 Promise，让需要感知失败的调用者（如 inheritIncompleteTasks）能 await 到 rejection
+    return thisSave;
   }
 
-  // 启动时备份任务数据
+  // 备份任务数据到 tasks-backup.json
+  // 在 loadTasks 成功后建立基线副本，用于 JSON 损坏/迁移失败时恢复
   async backupTasks() {
     try {
       const backupPath = this.tasksFilePath.replace('.json', '-backup.json');

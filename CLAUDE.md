@@ -12,15 +12,12 @@ An Obsidian plugin for kanban-style todo management with daily task boards, hist
 # Install dependencies
 npm install
 
-# Type-check (project is JavaScript; tsc is used only for type checking)
-npm run build        # tsc
-npm run dev          # tsc -watch
-
 # Bundle for distribution (uses esbuild, produces build/main.js)
-node esbuild.config.mjs production
+npm run build        # node esbuild.config.mjs production
+npm run dev          # node esbuild.config.mjs (watch mode, inline sourcemaps)
 
-# Development watch (bundles to build/main.js with inline sourcemaps)
-node esbuild.config.mjs
+# Type-check only (project is JavaScript; tsc checks against obsidian types)
+npm run build:check
 ```
 
 The `build/` directory contains the bundled output (`main.js`, `styles.css`, `manifest.json`). Copy the entire `build/` folder into `.obsidian/plugins/todo_kanban/` to install the plugin in Obsidian.
@@ -88,16 +85,19 @@ All mutating methods (`updateTask`, `deleteTask`, `moveTaskToToday`, etc.) opera
 1. Filters by date range (today / 7 days / 30 days / week / all).
 2. Applies search keyword, tag filter, and priority filter in a single pass.
 3. Sorts date groups descending (newest first).
-4. Renders via `renderTasksInBatches()` using `DocumentFragment` in batches of 20 with `setTimeout(0)` yield points to avoid blocking the main thread.
+4. Renders into a `DocumentFragment` and attaches it in a single operation to minimize reflow. Existing cards are diffed and reused by `taskId` (see `updateCardContent`) rather than being rebuilt from scratch.
 
 Within each date group, tasks are sorted:
 - Incomplete before completed.
+- Tasks with an active reminder pinned at top.
 - Urgent tasks (due date is tomorrow or earlier) pinned at top.
 - By priority order (high → medium → low → none).
 - Tasks without due date before tasks with due date.
 - Tasks with due date sorted ascending.
 
-**Event handling:** `TodoView` uses `AbortController` to register all DOM event listeners. On `onClose()`, `abortController.abort()` removes them. Drag-and-drop events are attached per-card (not delegated) to restrict reordering within the same date group.
+**Event handling:** `TodoView` uses `AbortController` to register all DOM event listeners. On `onClose()`, `abortController.abort()` removes them. Click events (checkbox, delete button, tag filter) and drag-and-drop are both handled via container-level event delegation (`setupEventDelegation`, `setupDragDelegation`), restricting reordering to within the same date group. A reminder ticker (`_reminderTicker`) refreshes countdown tooltips every 30s and is cleared in `onClose()`.
+
+**Confirmation dialogs:** Use `ConfirmModal` (in `modals/`) instead of the browser-native `confirm()`, which is unreliable in Obsidian/Electron (especially on mobile).
 
 ### Security Patterns
 

@@ -4,6 +4,7 @@ const { formatDate, formatDateTime, getWeekStartDate, getWeekEndDate } = require
 const SecurityService = require('../services/SecurityService');
 const EditModal = require('../modals/EditModal');
 const ExportModal = require('../modals/ExportModal');
+const ConfirmModal = require('../modals/ConfirmModal');
 
 // 待办视图
 class TodoView extends ItemView {
@@ -216,6 +217,27 @@ class TodoView extends ItemView {
 
     // 渲染任务
     this.renderTasks();
+
+    // 启动提醒倒计时刷新定时器：仅更新提醒图标的 title（剩余分钟数），
+    // 避免全量重渲染。每 30 秒刷新一次，在 onClose 中清理。
+    this._reminderTicker = setInterval(() => this._refreshReminderIcons(), 30000);
+  }
+
+  // 刷新所有提醒图标的剩余时间提示（轻量更新，不重建 DOM）
+  _refreshReminderIcons() {
+    const reminderService = this.plugin.reminderService;
+    if (!reminderService) return;
+    const icons = this.todoContainer.querySelectorAll('.todo-reminder-icon');
+    icons.forEach(icon => {
+      const taskId = icon.dataset.taskId;
+      if (!reminderService.hasReminder(taskId)) {
+        icon.remove();
+        return;
+      }
+      const remaining = reminderService.getRemainingTime(taskId);
+      const mins = Math.ceil(remaining / 60000);
+      icon.title = `${mins} 分钟后提醒`;
+    });
   }
 
   setupEventDelegation(signal) {
@@ -445,6 +467,11 @@ class TodoView extends ItemView {
       clearTimeout(this.filterDebounceTimer);
       this.filterDebounceTimer = null;
     }
+    // 清理提醒倒计时刷新定时器
+    if (this._reminderTicker) {
+      clearInterval(this._reminderTicker);
+      this._reminderTicker = null;
+    }
   }
 
   // 添加任务（带输入验证）
@@ -636,14 +663,20 @@ class TodoView extends ItemView {
       clearBtn.textContent = '清空';
       clearBtn.className = 'todo-clear-date-button';
       clearBtn.addEventListener('click', async () => {
-        if (confirm(`确定要清空 ${dateTask.date} 的所有任务吗？`)) {
-          try {
-            await this.plugin.deleteTasksByDate(dateTask.date);
-            this.renderTasks();
-          } catch (error) {
-            this.errorHandler.handle(error, '清空任务');
+        const modal = new ConfirmModal(this.app, {
+          title: '清空任务',
+          message: `确定要清空 ${dateTask.date} 的所有任务吗？`,
+          confirmText: '清空',
+          onConfirm: async () => {
+            try {
+              await this.plugin.deleteTasksByDate(dateTask.date);
+              this.renderTasks();
+            } catch (error) {
+              this.errorHandler.handle(error, '清空任务');
+            }
           }
-        }
+        });
+        modal.open();
       }, { signal: this.signal });
       dateHeader.appendChild(clearBtn);
       dateSection.appendChild(dateHeader);
@@ -731,53 +764,6 @@ class TodoView extends ItemView {
   showEditDialog(task, card) {
     const modal = new EditModal(this.app, this, task, card, this.errorHandler);
     modal.open();
-  }
-
-  // 更新任务卡片显示
-  updateTaskCard(card, task) {
-    const content = card.querySelector('.todo-content');
-    const textEl = content.querySelector('.todo-text');
-    const dueDateEl = content.querySelector('.todo-due-date');
-    const linkEl = content.querySelector('.todo-link');
-    
-    // 更新文本
-    textEl.textContent = task.content;
-    
-    // 更新截止日期
-    if (task.dueDate) {
-      if (dueDateEl) {
-        dueDateEl.textContent = `截止: ${task.dueDate}`;
-      } else {
-        const newDueDate = content.createEl('p', { 
-          text: `截止: ${task.dueDate}`, 
-          cls: 'todo-due-date' 
-        });
-        // 插入到链接之前
-        if (linkEl) {
-          content.insertBefore(newDueDate, linkEl);
-        }
-      }
-    } else if (dueDateEl) {
-      dueDateEl.remove();
-    }
-    
-    // 更新链接
-    const safeLink = SecurityService.sanitizeLink(task.link);
-    if (safeLink) {
-      if (linkEl) {
-        linkEl.href = safeLink;
-      } else {
-        content.createEl('a', {
-          text: '打开链接',
-          cls: 'todo-link',
-          href: safeLink,
-          target: '_blank',
-          rel: 'noopener noreferrer'
-        });
-      }
-    } else if (linkEl) {
-      linkEl.remove();
-    }
   }
 
   // 显示提醒右键菜单
@@ -1049,19 +1035,12 @@ class TodoView extends ItemView {
       });
     }
 
-    const deleteBtn = actions.createEl('button', {
+    // 删除按钮：点击事件由 setupEventDelegation() 在容器级别统一委托处理
+    // （委托版本 handleTaskDelete 会清理空日期组，比此处直接 remove 更完整）
+    actions.createEl('button', {
       text: '×',
       cls: 'todo-delete-button'
     });
-
-    deleteBtn.addEventListener('click', async () => {
-      try {
-        await this.plugin.deleteTask(task.taskId);
-        card.remove();
-      } catch (error) {
-        this.errorHandler.handle(error, '删除任务');
-      }
-    }, { signal: this.signal });
 
     return card;
   }

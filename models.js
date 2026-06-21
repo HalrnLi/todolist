@@ -42,6 +42,20 @@ function removeTags(content) {
   return content.replace(/#[\w\u4e00-\u9fa5\-_]+/g, '').replace(/\s+/g, ' ').trim();
 }
 
+// 判断闰年
+function isLeapYear(year) {
+  return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+}
+
+// 各月份天数（非闰年）
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+// 获取某年某月的天数（考虑闰年）
+function getDaysInMonth(year, month) {
+  if (month === 2 && isLeapYear(year)) return 29;
+  return DAYS_IN_MONTH[month - 1];
+}
+
 // 判断任务是否为紧急置顶任务（截止日期前一天开始置顶）
 function isUrgentTask(task, todayStr) {
   if (!task.dueDate || task.completed) return false;
@@ -56,13 +70,7 @@ function isUrgentTask(task, todayStr) {
 
   // 验证日期数值范围有效性
   if (dueMonth < 1 || dueMonth > 12 || dueDay < 1) return false;
-  const daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  const isLeapYear = (dueYear % 4 === 0 && dueYear % 100 !== 0) || (dueYear % 400 === 0);
-  if (dueMonth === 2 && isLeapYear) {
-    if (dueDay > 29) return false;
-  } else if (dueDay > daysInMonth[dueMonth - 1]) {
-    return false;
-  }
+  if (dueDay > getDaysInMonth(dueYear, dueMonth)) return false;
 
   // 计算截止日期前一天的 yyyy-mm-dd
   let prevDay = dueDay - 1;
@@ -75,14 +83,7 @@ function isUrgentTask(task, todayStr) {
       prevMonth = 12;
       prevYear -= 1;
     }
-    // 使用已知的天数，避免依赖 Date
-    const daysInPrevMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][prevMonth - 1];
-    // 闰年处理
-    if (prevMonth === 2 && ((prevYear % 4 === 0 && prevYear % 100 !== 0) || prevYear % 400 === 0)) {
-      prevDay = 29;
-    } else {
-      prevDay = daysInPrevMonth;
-    }
+    prevDay = getDaysInMonth(prevYear, prevMonth);
   }
 
   const oneDayBefore = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(prevDay).padStart(2, '0')}`;

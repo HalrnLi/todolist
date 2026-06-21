@@ -5,10 +5,11 @@ class ReminderService {
     this.timerManager = timerManager;
     this.plugin = plugin;
     this.reminders = new Map(); // taskId -> { timerId, fireAt, content }
-    this._requestPermission();
+    // 注意：不在构造时请求通知权限，避免插件一加载就弹权限框。
+    // 改为在用户首次设置提醒时（setReminder）按需请求。
   }
 
-  // 静默请求通知权限
+  // 按需请求通知权限（仅在用户实际设置提醒时调用）
   _requestPermission() {
     if (typeof Notification === 'undefined') return;
     if (Notification.permission === 'default') {
@@ -18,6 +19,9 @@ class ReminderService {
 
   // 设置提醒，返回 fireAt 时间戳
   setReminder(taskId, content, delayMs, link) {
+    // 用户主动设置提醒时才请求通知权限
+    this._requestPermission();
+
     // 如果已有提醒，先取消
     this.cancelReminder(taskId);
 

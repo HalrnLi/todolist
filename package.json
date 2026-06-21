@@ -4,8 +4,9 @@
   "description": "A kanban-style todo manager for Obsidian with priority and tags support",
   "main": "main.js",
   "scripts": {
-    "dev": "tsc -watch",
-    "build": "tsc"
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production",
+    "build:check": "tsc"
   },
   "keywords": [
     "obsidian",
